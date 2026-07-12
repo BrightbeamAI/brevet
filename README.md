@@ -16,7 +16,7 @@ releases.</b></p>
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/tests-31%20passing-brightgreen.svg" alt="Tests: 31 passing">
+  <img src="https://img.shields.io/badge/tests-33%20passing-brightgreen.svg" alt="Tests: 33 passing">
   <img src="https://img.shields.io/badge/local--first-no%20cloud%20APIs-555.svg" alt="Local-first: no cloud APIs">
   <a href="https://github.com/BrightbeamAI/chap"><img src="https://img.shields.io/badge/CHAP-compatible-EA4700.svg" alt="CHAP-compatible"></a>
 </p>
@@ -223,7 +223,7 @@ rejection is not deletion.
 ## Status
 
 v0.1.0: the full loop, ten framework adapters, MCP server, eval runner,
-local model assist, CHAP mirroring. 31 tests, all green, no network
+local model assist, CHAP mirroring. 33 tests, all green, no network
 required. Contributions welcome, framework adapters especially.
 
 Apache-2.0 · a [Brightbeam](https://github.com/BrightbeamAI) project ·

@@ -8,7 +8,7 @@ is deliberately small: five JSON Schemas, one spec, one runtime.
 ```console
 $ git clone https://github.com/BrightbeamAI/brevet && cd brevet
 $ pip install -e ".[dev]"
-$ pytest          # 31 tests, no network, no model, sub-second
+$ pytest          # 33 tests, sub-second (chap mirror test needs the [chap] extra)
 $ ruff check .
 $ brevet demo     # the whole loop on synthetic data
 ```

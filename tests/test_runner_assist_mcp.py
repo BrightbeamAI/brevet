@@ -91,15 +91,43 @@ def test_assist_drafts_are_used_and_logged(tmp_path):
 
 
 def test_chap_bridge_queues_offline(tmp_path):
-    from brevet.chap_bridge import dispatcher_from_ref
+    from brevet.chap_bridge import CHAPDispatcher, dispatcher_from_ref
     assert dispatcher_from_ref("file:./x.jsonl", tmp_path) is None
-    assert dispatcher_from_ref("chap:wsp_x", tmp_path) is None  # no URL configured
     d = dispatcher_from_ref("chap:wsp_x@http://127.0.0.1:9", tmp_path)
-    assert d is not None
+    assert isinstance(d, CHAPDispatcher)
     ok = d.dispatch({"kind": "brevet.task", "body": {"a": 1}, "chain_hash": "sha256:00"})
     assert not ok and d.outbox.exists()
     sent, remaining = d.flush()
     assert sent == 0 and remaining == 1  # still offline, still queued
+
+
+def test_chap_bridge_unconfigured_or_embedded(tmp_path):
+    """chap:<ws> with no URL: embedded official coordinator when installed,
+    otherwise local chain only."""
+    from brevet.chap_bridge import EmbeddedCHAPDispatcher, dispatcher_from_ref
+    d = dispatcher_from_ref("chap:wsp_x", tmp_path)
+    try:
+        import chap_coordinator  # noqa: F401
+        assert isinstance(d, EmbeddedCHAPDispatcher)
+    except ImportError:
+        assert d is None
+
+
+def test_chap_embedded_mirrors_through_official_coordinator(tmp_path):
+    pytest.importorskip("chap_coordinator")
+    from brevet.chap_bridge import EmbeddedCHAPDispatcher, _rpc
+    d = EmbeddedCHAPDispatcher("wsp_brevet_test", tmp_path / "chap.db")
+    ok = d.dispatch({"kind": "brevet.override", "refs": ["tsk_1"],
+                     "body": {"rationale": "seal-wear precursor"},
+                     "chain_hash": "sha256:0f"})
+    assert ok
+    audit = d.coordinator.dispatch(
+        _rpc("audit.read", {"workspace": "wsp_brevet_test"}))
+    entries = audit["result"]["entries"]
+    # workspace.create + participant.join + task.create + task.complete
+    assert len(entries) >= 4
+    methods = [e["envelope"].get("method") for e in entries]
+    assert "task.create" in methods and "task.complete" in methods
 
 
 def test_mcp_server_exposes_lifecycle(tmp_path):

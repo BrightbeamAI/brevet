@@ -78,11 +78,14 @@ system of record; Brevet records only the binding.
   a local Ollama model (`brevet dream --assist ollama`). Drafts only, always
   logged, never authoritative, fails soft to deterministic templates. The
   entire runtime works with no model installed.
-- **CHAP mirroring.** Declare `ledger: chap:<workspace>@<url>` and every
-  envelope mirrors to a running CHAP coordinator (the reference
-  implementation is [`@chap/coordinator`](https://github.com/BrightbeamAI/chap)
-  on npm) using CHAP's own JSON-RPC `task.create` method, through an
-  offline-tolerant outbox. The local hash chain stays the source of truth.
+- **CHAP mirroring.** Declare `ledger: chap:<workspace>` and, with the
+  official Python coordinator installed (`pip install "brevet[chap]"`),
+  every envelope mirrors through a real embedded
+  [`chap_coordinator.Coordinator`](https://github.com/BrightbeamAI/chap/tree/main/packages/coordinator-py)
+  with a SQLite store in the workdir. Point it at a served coordinator
+  instead with `ledger: chap:<workspace>@<url>`, which speaks the same
+  CHAP Core JSON-RPC through an offline-tolerant outbox. The local hash
+  chain stays the source of truth.
 
 ## Supported frameworks
 
@@ -141,7 +144,7 @@ brevet/
 │   ├── capabilities_lock.schema.json
 │   ├── release_record.schema.json
 │   └── recall_notice.schema.json
-├── tests/                   31 tests, offline, sub-second
+├── tests/                   33 tests, offline, sub-second
 ├── docs/
 │   ├── demo.html            interactive story tour
 │   └── assets/              diagrams + demo GIF

@@ -1,10 +1,11 @@
 """The evidence ledger.
 
 CHAP-shaped envelopes in an append-only, hash-linked JSONL file. When the
-manifest points ``ledger: chap:<workspace>@<url>`` at a running CHAP
-coordinator (the reference implementation is ``@chap/coordinator`` on npm),
-envelopes are additionally dispatched there over CHAP's JSON-RPC surface;
-the local chain remains the offline-verifiable copy. Envelope kinds use the ``brevet.*``
+manifest declares a ``chap:`` ledger, envelopes are additionally mirrored
+through the official CHAP coordinator: embedded in-process via the
+``chap-coordinator`` Python package, or over JSON-RPC to a served
+coordinator (``chap:<workspace>@<url>``). The local chain remains the
+offline-verifiable copy. Envelope kinds use the ``brevet.*``
 namespace, declared by the ``brevet/1.0`` profile:
 
     brevet.task            one wrapped agent invocation

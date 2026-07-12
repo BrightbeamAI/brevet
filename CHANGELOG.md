@@ -33,6 +33,8 @@ unrelated JAX library, and several AI projects already share that name.)
   invariants hold over MCP.
 - Optional local model assist via Ollama (drafts only, always logged, fails
   soft to deterministic templates).
-- Optional live CHAP mirroring with an offline-tolerant outbox.
+- CHAP mirroring through the official `chap-coordinator` package:
+  embedded in-process with a SQLite store, or to a served coordinator
+  over CHAP Core JSON-RPC, with an offline-tolerant outbox.
 - Five JSON Schemas as the normative contract (`schemas/`), a normative
   spec (`SPEC.md`), and a benchmark design note (`BENCHMARK.md`).
