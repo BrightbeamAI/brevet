@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brevet · change control for what AI agents learn</title>
+<meta name="description" content="An interactive tour of Brevet: why agent learning needs change control, how the governed evolution loop works, where it applies, and how it wraps the agent framework you already use.">
+<style>
+  :root{
+    --ember:#EA4700; --ember-strong:#C93D00; --amber:#FF9900;
+    --ink:#141414; --sub:#5A5A5A; --gray:#808080;
+    --page:#FFFFFF; --alt:#FAFAFA; --card:#FFFFFF; --line:#E4E4E4;
+    --soft:#F5F5F5; --chipbg:#FFFFFF; --shadow:0 1px 3px rgba(0,0,0,.05);
+    --imgshadow:0 8px 28px rgba(0,0,0,.14);
+    --green:#1E9E5A; --blue:#5A8ED6;
+    --console:#1B1C1E; --console-line:#3A3C40;
+    --c-cm:#8A8F98; --c-kw:#1B5FAE; --c-st:#1E7A46; --c-fn:#B84A00; --c-nm:#222; --c-hl:#EA4700;
+    --codebg:#F5F5F5; --codetext:#222;
+    --mono:Consolas,'Cascadia Mono',Menlo,monospace;
+  }
+  html[data-theme="dark"]{
+    --ink:#F5F5F5; --sub:#B3B8BF; --gray:#8A8F98;
+    --page:#1B1C1E; --alt:#202124; --card:#242528; --line:#3A3C40;
+    --soft:#2C2D31; --chipbg:#242528; --shadow:0 1px 3px rgba(0,0,0,.3);
+    --imgshadow:0 8px 28px rgba(0,0,0,.5);
+    --green:#3FBF71; --blue:#7FA6E8;
+    --c-cm:#7A7F87; --c-kw:#7FA6E8; --c-st:#59B37E; --c-fn:#FF9900; --c-nm:#E7E9EC; --c-hl:#FF6A3D;
+    --codebg:#242528; --codetext:#E7E9EC;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--page);color:var(--ink);font:17.5px/1.7 Arial,Helvetica,sans-serif;
+       transition:background .35s ease,color .35s ease}
+  a{color:var(--ember);text-decoration:none}
+  html[data-theme="dark"] a{color:var(--amber)}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 28px}
+  section{padding:84px 0;border-bottom:1px solid var(--line)}
+  section.alt{background:var(--alt)}
+  h1{font-size:clamp(38px,5.5vw,62px);line-height:1.1;letter-spacing:-.6px}
+  h2{font-size:clamp(28px,3.8vw,40px);margin-bottom:12px;letter-spacing:-.4px}
+  h3{font-size:20px;margin-bottom:8px}
+  .kicker{font:bold 13px/1 Arial,Helvetica,sans-serif;letter-spacing:3px;color:var(--ember);text-transform:uppercase;margin-bottom:16px}
+  html[data-theme="dark"] .kicker{color:var(--amber)}
+  .sub{color:var(--sub);max-width:820px;margin-bottom:30px;font-size:18.5px}
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:var(--shadow);
+        transition:transform .3s ease,box-shadow .3s ease,background .35s ease,border-color .35s ease}
+  .card:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,0,0,.10)}
+  .card h3{color:var(--ink)}
+  .card p{color:var(--sub);font-size:16px}
+  .card .big{font-size:17.5px;color:var(--ink)}
+  code,pre{font-family:var(--mono)}
+  code.inline{background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font-size:.87em;color:var(--ink)}
+  pre{background:var(--codebg);border-left:4px solid var(--ember);border-radius:0 12px 12px 0;padding:20px 22px;overflow-x:auto;font-size:15px;line-height:1.65;color:var(--codetext);transition:background .35s ease}
+  pre.console{background:var(--console);border:1px solid var(--console-line);border-left:4px solid var(--amber);color:#E7E9EC;border-radius:14px}
+  pre.console .cm{color:#7A7F87}pre.console .kw{color:#7FA6E8}pre.console .st{color:#59B37E}
+  pre.console .fn{color:#FF9900}pre.console .nm{color:#E7E9EC}pre.console .hl{color:#FF6A3D}
+  pre:not(.console) .cm{color:var(--c-cm)}pre:not(.console) .kw{color:var(--c-kw)}
+  pre:not(.console) .st{color:var(--c-st)}pre:not(.console) .fn{color:var(--c-fn)}
+  pre:not(.console) .nm{color:var(--c-nm)}pre:not(.console) .hl{color:var(--c-hl)}
+
+  /* ---------- motion ---------- */
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.2,.65,.25,1),transform .8s cubic-bezier(.2,.65,.25,1)}
+  .reveal.on{opacity:1;transform:none}
+  .grid .reveal:nth-child(2){transition-delay:.09s}
+  .grid .reveal:nth-child(3){transition-delay:.18s}
+  .grid .reveal:nth-child(4){transition-delay:.27s}
+  .grid .reveal:nth-child(5){transition-delay:.36s}
+  .grid .reveal:nth-child(6){transition-delay:.45s}
+  @keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+  @keyframes spread{from{opacity:0;letter-spacing:14px}to{opacity:1;letter-spacing:6px}}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+  @keyframes swap{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .swap-anim{animation:swap .4s cubic-bezier(.2,.65,.25,1)}
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important;transition:none!important}
+    .reveal{opacity:1;transform:none}
+  }
+
+  /* ---------- theme toggle ---------- */
+  .themetoggle{position:fixed;top:18px;right:18px;z-index:50;display:flex;align-items:center;gap:8px;
+    background:var(--card);border:1.5px solid var(--line);border-radius:999px;padding:8px 16px;
+    font:bold 13.5px Arial,Helvetica,sans-serif;color:var(--sub);cursor:pointer;box-shadow:var(--shadow);
+    transition:border-color .3s ease,background .35s ease}
+  .themetoggle:hover{border-color:var(--amber)}
+
+  /* ---------- hero ---------- */
+  header{padding:110px 0 84px;border-bottom:1px solid var(--line);background:
+    radial-gradient(900px 380px at 82% -10%, rgba(255,153,0,.12), transparent 60%),
+    radial-gradient(760px 340px at 6% 112%, rgba(234,71,0,.08), transparent 60%)}
+  .wordmark{font:bold 14px/1 var(--mono);letter-spacing:6px;color:var(--amber);border:2px solid var(--amber);border-radius:8px;display:inline-block;padding:9px 16px;margin-bottom:28px;
+    animation:spread 1.1s cubic-bezier(.2,.65,.25,1) both}
+  header h1{animation:rise .9s cubic-bezier(.2,.65,.25,1) .15s both}
+  header .sub{animation:rise .9s cubic-bezier(.2,.65,.25,1) .3s both;font-size:20px}
+  .doctrine{margin:32px 0;padding:20px 26px;border-left:4px solid var(--ember);background:var(--soft);border-radius:0 14px 14px 0;color:var(--ink);font-size:19px;max-width:760px;
+    animation:rise .9s cubic-bezier(.2,.65,.25,1) .45s both;transition:background .35s ease}
+  .etym{display:flex;gap:20px;align-items:flex-start;background:var(--card);border:1px dashed var(--amber);border-radius:16px;padding:22px 26px;max-width:760px;margin-top:28px;
+    animation:rise .9s cubic-bezier(.2,.65,.25,1) .6s both}
+  .etym .word{font:bold 24px/1.2 var(--mono);color:var(--ember);white-space:nowrap}
+  html[data-theme="dark"] .etym .word{color:var(--amber)}
+  .etym p{color:var(--sub);font-size:16px}
+  .cta{margin-top:36px;display:flex;gap:14px;flex-wrap:wrap;animation:rise .9s cubic-bezier(.2,.65,.25,1) .75s both}
+  .btn{display:inline-block;padding:14px 26px;border-radius:12px;font-weight:bold;font-size:16.5px;transition:transform .25s ease,box-shadow .25s ease,background .25s ease,border-color .25s ease}
+  .btn:hover{transform:translateY(-2px);text-decoration:none}
+  .btn.primary{background:var(--ember);color:#fff;box-shadow:0 4px 14px rgba(234,71,0,.3)}
+  .btn.primary:hover{background:var(--ember-strong)}
+  .btn.ghost{border:2px solid var(--line);color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--amber)}
+
+  /* ---------- problem ---------- */
+  .qcard{border-top:4px solid var(--ember)}
+  .qcard h3{font-size:21px}
+  .qcard .ans{color:var(--green);font-family:var(--mono);font-size:14px;margin-top:12px}
+
+  /* ---------- walkthrough ---------- */
+  .stages{display:flex;flex-wrap:wrap;gap:9px;margin:28px 0 20px}
+  .stage{font:bold 13px/1 var(--mono);letter-spacing:1.5px;padding:11px 15px;border-radius:999px;border:2px solid var(--line);color:var(--gray);cursor:pointer;user-select:none;transition:all .3s cubic-bezier(.2,.65,.25,1);background:var(--chipbg)}
+  .stage.done{border-color:var(--green);color:var(--green)}
+  .stage.active{border-color:var(--ember);color:var(--ember);background:var(--soft);transform:scale(1.09)}
+  html[data-theme="dark"] .stage.active{border-color:var(--amber);color:var(--amber)}
+  .walk{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:stretch}
+  .walk .story{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:30px;min-height:360px;box-shadow:var(--shadow)}
+  .walk .story .n{font:800 46px/1 var(--mono);color:var(--line);transition:color .35s ease}
+  .walk .story h3{font-size:25px;color:var(--ember);margin:12px 0 14px}
+  html[data-theme="dark"] .walk .story h3{color:var(--amber)}
+  .walk .story p{color:var(--sub);font-size:17px;margin-bottom:12px}
+  .walk .story .analogy{border-top:1px solid var(--line);margin-top:16px;padding-top:16px;font-size:15.5px;color:var(--gray);font-style:italic}
+  .walk pre.console{min-height:360px;margin:0}
+  .controls{display:flex;gap:12px;margin-top:22px;align-items:center;flex-wrap:wrap}
+  .controls button{background:var(--chipbg);color:var(--ink);border:2px solid var(--line);border-radius:12px;padding:12px 22px;font:bold 15.5px Arial,Helvetica,sans-serif;cursor:pointer;transition:all .25s ease}
+  .controls button:hover{border-color:var(--amber);transform:translateY(-1px)}
+  .controls button.play{border-color:var(--ember);color:var(--ember)}
+  html[data-theme="dark"] .controls button.play{border-color:var(--amber);color:var(--amber)}
+  .controls .hint{color:var(--gray);font-size:14px}
+
+  /* ---------- where ---------- */
+  .where .card{border-left:4px solid var(--amber)}
+
+  /* ---------- axes ---------- */
+  .axes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-top:24px}
+  .axis{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .axis h3{font-size:18px}
+  .axis .bar{height:9px;border-radius:5px;background:var(--soft);margin:14px 0 10px;overflow:hidden}
+  .axis .bar i{display:block;height:100%;border-radius:5px;width:0;transition:width 1.1s cubic-bezier(.2,.65,.25,1) .3s}
+  .axis.on .bar i{width:var(--w)}
+  .axis small{color:var(--gray);font-size:14px}
+
+  /* ---------- tabs ---------- */
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:-1px}
+  .tab{font:bold 14px var(--mono);padding:12px 18px;border:1px solid var(--line);border-bottom:none;border-radius:12px 12px 0 0;color:var(--sub);cursor:pointer;background:var(--alt);transition:all .25s ease}
+  .tab.active{background:var(--codebg);color:var(--ember);border-color:var(--ember)}
+  html[data-theme="dark"] .tab.active{color:var(--amber);border-color:var(--amber)}
+  .tabpane{display:none}
+  .tabpane.active{display:block;animation:swap .35s cubic-bezier(.2,.65,.25,1)}
+  .tabpane pre{border-radius:0 14px 14px 14px;margin:0}
+
+  /* ---------- glossary ---------- */
+  /* ---------- analogies mapping cards ---------- */
+  .map-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .map-row .from,.map-row .to{font-family:var(--mono);font-size:13.5px;padding:8px 13px;border-radius:9px;border:1px solid var(--line);background:var(--soft);color:var(--ink);display:inline-flex;align-items:center;gap:9px;white-space:nowrap}
+  .map-row .to{border-color:var(--amber);color:var(--ember);font-weight:bold}
+  html[data-theme="dark"] .map-row .to{color:var(--amber)}
+  .map-row .arr{color:var(--amber);font-weight:bold;font-size:18px}
+  .map-row svg{width:17px;height:17px;stroke:var(--ember);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  html[data-theme="dark"] .map-row svg{stroke:var(--amber)}
+  .analogies-close{margin-top:28px;color:var(--sub);font-size:16.5px;text-align:center;font-style:italic}
+
+  .gloss .card h3{font-family:var(--mono);color:var(--ember);font-size:16.5px;letter-spacing:.2px}
+  html[data-theme="dark"] .gloss .card h3{color:var(--amber)}
+  .gloss .card p{font-size:15px}
+  .gloss .more{margin-top:24px;color:var(--sub);font-size:15.5px}
+
+  footer{padding:48px 0;color:var(--gray);font-size:15px}
+  footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .imgblock{margin:38px 0 0;text-align:center}
+  .imgblock img{max-width:100%;height:auto;border-radius:18px;box-shadow:var(--imgshadow)}
+
+  /* ---------- responsive ---------- */
+  @media(max-width:900px){
+    .walk{grid-template-columns:1fr}
+    .walk pre.console{min-height:0}
+  }
+  @media(max-width:640px){
+    body{font-size:16.5px}
+    header{padding:84px 0 64px}
+    section{padding:60px 0}
+    .wrap{padding:0 20px}
+    .sub{font-size:17px}
+    .doctrine{font-size:17px}
+    .etym{flex-direction:column;gap:10px}
+    .cta .btn{width:100%;text-align:center}
+    .tabs{overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}
+    .tab{white-space:nowrap}
+    .themetoggle{top:12px;right:12px;padding:7px 13px}
+    .walk .story{min-height:0;padding:24px}
+  }
+</style>
+</head>
+<body>
+
+<button class="themetoggle" id="themetoggle" aria-label="Switch between light and dark mode">
+  <span id="themeicon">&#9789;</span><span id="themelabel">Dark</span>
+</button>
+
+<!-- ============================ HERO ============================ -->
+<header>
+  <div class="wrap">
+    <div class="wordmark">B R E V E T</div>
+    <h1>Change control for what<br>AI agents learn.</h1>
+    <p class="sub" style="margin-top:20px">
+      Agents can now improve themselves: new rules, new skills, new memory.
+      Brevet makes that learning <strong>promotable, auditable, and revocable</strong>,
+      wrapped around the agent framework you already use.
+    </p>
+    <div class="doctrine">
+      Agents propose deltas; evidence tests them; humans promote them;<br>
+      the runtime only ever executes signed versions.
+    </div>
+    <div class="etym">
+      <div class="word">bre·vet<br><span style="font-weight:normal;font-size:13.5px;color:var(--gray)">/brəˈvɛt/</span></div>
+      <p><em>n.</em> a commission conferring rank by signed warrant: provisional,
+      earned in the field, and revocable by the authority that granted it.
+      That is exactly what a promotion here gives a capability. Authority that is
+      signed, conditional, and can be taken back.</p>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="#walkthrough">Walk the loop</a>
+      <a class="btn ghost" href="https://github.com/BrightbeamAI/brevet">GitHub</a>
+      <a class="btn ghost" href="#integrate">3-line integration</a>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ PROBLEM ============================ -->
+<section id="problem">
+  <div class="wrap">
+    <div class="kicker reveal">The need</div>
+    <h2 class="reveal">Your agent learned something on Tuesday.</h2>
+    <p class="sub reveal">
+      Maybe it stored a memory. Maybe a self-improvement loop rewrote part of its prompt.
+      Maybe someone pasted a new rule into a config. On Wednesday it behaves differently,
+      and mostly better. Then something goes wrong, or an auditor walks in, and someone
+      asks three questions that today almost nobody can answer:
+    </p>
+    <div class="grid g3">
+      <div class="card qcard reveal">
+        <h3>&ldquo;What does it know?&rdquo;</h3>
+        <p>Not the model weights. The rules, skills, memories and tool bindings the agent
+        has picked up since you deployed it. Today that knowledge lives in an invisible
+        pile of prompts and glue.</p>
+        <p class="ans">Brevet: capabilities.lock, a bill of materials for learned behaviour.</p>
+      </div>
+      <div class="card qcard reveal">
+        <h3>&ldquo;Who approved that?&rdquo;</h3>
+        <p>A learned behaviour changed a real decision. Which human said that
+        change could ship? On what evidence? Today: nobody did. It just accumulated.</p>
+        <p class="ans">Brevet: every promotion is a signed, recorded human decision.</p>
+      </div>
+      <div class="card qcard reveal">
+        <h3>&ldquo;Take it back. Prove it.&rdquo;</h3>
+        <p>The learned rule turned out to be wrong. Delete it? From where? From
+        which versions? And how do you show the regulator it is really gone?</p>
+        <p class="ans">Brevet: recall, CVE-style un-learning, provable from the chain.</p>
+      </div>
+    </div>
+    <div class="imgblock reveal">
+      <img src="assets/the-analogy.svg" alt="A new hire's learning goes through change requests, sign-off, versioning and rollback; an unwrapped agent has none of those controls; the same agent wrapped in Brevet gets all of them back" width="1020">
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ANALOGIES ============================ -->
+<section id="analogies" class="alt">
+  <div class="wrap">
+    <div class="kicker reveal">The sense behind it</div>
+    <h2 class="reveal">You already trust this pattern everywhere else</h2>
+    <p class="sub reveal">Brevet invents almost nothing. Each of its mechanisms is a
+    control you already rely on, moved to the one place that has none: what your
+    agent learns.</p>
+    <div class="grid g2">
+      <div class="card reveal">
+        <div class="map-row">
+          <span class="from"><svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>package-lock.json</span>
+          <span class="arr">&rarr;</span>
+          <span class="to">capabilities.lock</span>
+        </div>
+        <p class="big">You pin every dependency before you ship.</p>
+        <p>npm writes a lockfile so the same code installs the same way twice, and
+        every package has a name and a version. Brevet writes the same file for
+        learned behaviour: every capability in a release, its content hash, and the
+        human who approved it.</p>
+      </div>
+      <div class="card reveal">
+        <div class="map-row">
+          <span class="from"><svg viewBox="0 0 24 24"><path d="M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M8 3h8"/><path d="M7.5 15h9"/></svg>clinical trials</span>
+          <span class="arr">&rarr;</span>
+          <span class="to">shadow &middot; trial &middot; production</span>
+        </div>
+        <p class="big">A promising molecule is not a medicine.</p>
+        <p>Pharma lets discovery be bold because approval is a separate act:
+        candidates pass phased trials before anyone prescribes them. Brevet
+        quarantines what the agent discovers the same way. A candidate earns
+        authority through human gates, and releases climb the channels.</p>
+      </div>
+      <div class="card reveal">
+        <div class="map-row">
+          <span class="from"><svg viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M12 8v5"/><circle cx="12" cy="16.5" r="0.6"/></svg>CVE advisory</span>
+          <span class="arr">&rarr;</span>
+          <span class="to">brevet recall</span>
+        </div>
+        <p class="big">When a dependency turns dangerous, you do not shrug.</p>
+        <p>The ecosystem publishes an advisory, names the affected versions, and
+        everyone can verify the fix. Brevet does the same for something an agent
+        learned: revoke it by content hash, flag every release that shipped it,
+        and let anyone replay the rollback from the chain.</p>
+      </div>
+      <div class="card reveal">
+        <div class="map-row">
+          <span class="from"><svg viewBox="0 0 24 24"><path d="M2 16l20-6-9 4-2 7-3-5-6 0z"/><path d="M13 14L21 10"/></svg>maintenance release</span>
+          <span class="arr">&rarr;</span>
+          <span class="to">signed agent.yaml</span>
+        </div>
+        <p class="big">An aircraft flies only with the release signed.</p>
+        <p>Every modification is logged, signed, and traceable to a named engineer;
+        otherwise the plane stays in the hangar. The waking agent runs exactly one
+        signed harness version, and what it wakes up knowing is a recorded human
+        decision. No signature, no flight.</p>
+      </div>
+    </div>
+    <p class="analogies-close reveal">Four controls, each boring in its home
+    discipline. Brevet's contribution is applying them, together, to agent learning.</p>
+  </div>
+</section>
+
+<!-- ============================ WALKTHROUGH ============================ -->
+<section id="walkthrough">
+  <div class="wrap">
+    <div class="kicker reveal">How Brevet solves it</div>
+    <h2 class="reveal">The governed evolution loop, step by step</h2>
+    <p class="sub reveal">This is the exact sequence <code class="inline">brevet demo</code> runs:
+    a deviation-triage assistant in a pharma quality team. Click through, or press play.</p>
+
+    <div class="stages" id="stages"></div>
+    <div class="walk">
+      <div class="story" id="story"></div>
+      <pre class="console" id="evidence"></pre>
+    </div>
+    <div class="controls">
+      <button id="prev">&larr; Back</button>
+      <button id="next">Next &rarr;</button>
+      <button id="play" class="play">&#9654; Play the loop</button>
+      <span class="hint" id="hint"></span>
+    </div>
+
+    <div class="imgblock reveal">
+      <img src="assets/the-loop.svg" alt="The governed evolution loop diagram" width="1020">
+    </div>
+  </div>
+</section>
+
+<!-- ============================ WHERE ============================ -->
+<section id="where" class="where alt">
+  <div class="wrap">
+    <div class="kicker reveal">Where it applies</div>
+    <h2 class="reveal">Built for work that has no answer key</h2>
+    <p class="sub reveal">A coding agent can grade itself against tests. A quality
+    reviewer cannot: no oracle says whether a deviation was major. So Brevet uses
+    the signal such work already produces. <strong style="color:var(--ink)">Every time an
+    expert corrects the agent, that correction becomes a labelled test case.</strong>
+    Your override history is the benchmark.</p>
+    <div class="grid g3">
+      <div class="card reveal"><h3>Pharma and med-device quality</h3><p>Deviation triage, batch record review,
+        CAPA drafting. Learned severity rules must be approved, versioned, and recallable.
+        Change control is already the law here; Brevet speaks it natively.</p></div>
+      <div class="card reveal"><h3>Financial operations</h3><p>Alert triage, case summaries, exception
+        handling. When the agent learns that a pattern is benign, that is a policy change.
+        Someone must own it, and the auditor must find them.</p></div>
+      <div class="card reveal"><h3>Clinical and safety documentation</h3><p>Narratives, coding suggestions,
+        signal triage. Experts correct drafts all day. Brevet turns those corrections
+        into candidates, evals, and governed improvement.</p></div>
+      <div class="card reveal"><h3>Industrial operations</h3><p>Shift handover, maintenance triage,
+        quality inspection. Tacit knowledge like &ldquo;vibration on CIP duty means seal wear&rdquo;
+        becomes an explicit, conditional, revocable capability.</p></div>
+      <div class="card reveal"><h3>MSPs and support engineering</h3><p>Ticket triage and runbook agents that
+        learn each client&rsquo;s quirks. The lockfile tells you exactly what each deployment
+        has learned, per client, per version.</p></div>
+      <div class="card reveal"><h3>Any team that fears week two</h3><p>Not regulated? The questions still bite
+        the first time a learned behaviour misfires in production and nobody can say when
+        it appeared or how to unlearn it.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ WHY ============================ -->
+<section id="why">
+  <div class="wrap">
+    <div class="kicker reveal">Why we built it</div>
+    <h2 class="reveal">The third piece of an arc</h2>
+    <p class="sub reveal">Brightbeam builds the governance layer for expert agents in
+    regulated industry. Each piece answers one question about a working agent:
+    what happened, what does it know, and how does it change.</p>
+
+    <div class="imgblock reveal" style="margin-top:6px">
+      <img src="assets/the-arc.svg" alt="The Brightbeam arc: CHAP made the work evidenced, Metis made the memory governed, Brevet makes the learning governed" width="1020">
+    </div>
+
+    <p class="sub reveal" style="margin-top:38px">
+      Research papers score self-evolving agents on one axis: did the pass rate go up?
+      Anyone who owns one in production needs four. Brevet is shaped so that all four are
+      answerable by construction, and its benchmark design scores them all:
+    </p>
+    <div class="axes">
+      <div class="axis reveal" style="--w:92%"><h3>Improvement</h3><div class="bar"><i style="background:var(--green)"></i></div><small>held-out pass-rate delta, the axis papers report</small></div>
+      <div class="axis reveal" style="--w:88%"><h3>Regression discipline</h3><div class="bar"><i style="background:var(--amber)"></i></div><small>the conservative gate: never trade one split for another</small></div>
+      <div class="axis reveal" style="--w:96%"><h3>Lineage</h3><div class="bar"><i style="background:var(--blue)"></i></div><small>every change traces to capability, evidence, eval, approver</small></div>
+      <div class="axis reveal" style="--w:90%"><h3>Recall compliance</h3><div class="bar"><i style="background:var(--ember)"></i></div><small>how fast and how provably a capability can be un-learned</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ INTEGRATION ============================ -->
+<section id="integrate" class="alt">
+  <div class="wrap">
+    <div class="kicker reveal">Integration</div>
+    <h2 class="reveal">Three lines. Your framework stays in charge.</h2>
+    <p class="sub reveal"><code class="inline">brevet.wrap()</code> auto-detects ten frameworks,
+    generates a signed-manifest scaffold, and starts the evidence chain. It never modifies
+    the wrapped object. Execution stays in your framework; Brevet owns the envelope.</p>
+
+    <div class="tabs" id="tabs"></div>
+    <div id="panes"></div>
+
+    <div class="imgblock reveal">
+      <img src="assets/the-envelope.svg" alt="Brevet envelope architecture diagram" width="920">
+    </div>
+  </div>
+</section>
+
+<!-- ============================ GLOSSARY ============================ -->
+<section id="glossary" class="gloss">
+  <div class="wrap">
+    <div class="kicker reveal">Speak Brevet</div>
+    <h2 class="reveal">The vocabulary, precisely</h2>
+    <p class="sub reveal">These terms come from Brightbeam&rsquo;s research on governed agent
+    adaptation. The code, the schemas, and the spec use each one exactly as defined here.</p>
+    <div class="grid g3">
+      <div class="card reveal"><h3>harness</h3><p>Everything around the model that makes it an
+        agent: prompts, tools, loop policy, memory bindings, safety rails. Brevet stores the
+        harness as data (<code class="inline">agent.yaml</code>), versioned and signed.</p></div>
+      <div class="card reveal"><h3>delta (&Delta; = enacted &#8854; specified)</h3><p>What actually
+        happened (traces, human finals) set against what the signed harness specified.
+        The &#8854; is a structured comparison of matched episodes, not subtraction.
+        Every candidate is mined from this difference.</p></div>
+      <div class="card reveal"><h3>dream cycle</h3><p>The offline mining run. It computes the delta,
+        clusters recurring divergences by failure signature, and emits candidates and compiled
+        eval cases. Nothing it produces carries authority.</p></div>
+      <div class="card reveal"><h3>dawn gate</h3><p>The human review moment. A named human or
+        mission group applies <code class="inline">promote</code>, <code class="inline">hold</code>,
+        <code class="inline">reject</code>, or <code class="inline">re_elicit</code> to each
+        candidate, and the ledger records the decision.</p></div>
+      <div class="card reveal"><h3>mission group</h3><p>The accountable review board: a named
+        panel of humans, never a single expert. It weighs evidence, resolves conflicts, decides
+        promotion or rejection, signs releases, and issues recalls, as
+        <code class="inline">mission_group:right_first_time</code> does in the demo.</p></div>
+      <div class="card reveal"><h3>override</h3><p>A human judgment, captured as the diff between
+        the agent&rsquo;s draft and the human&rsquo;s shipped final, plus rationale and tags.
+        <em>Refining</em>: same decision, better wording. <em>Substituting</em>: a different
+        decision, a real failure label.</p></div>
+      <div class="card reveal"><h3>capability object</h3><p>The unit of learned capability:
+        content, provenance, conditions, confidence, authority, validation-state, plus a kind
+        (prompt rule, skill, tool binding, eval case, ...). One lifecycle for all of them.</p></div>
+      <div class="card reveal"><h3>authority layers</h3><p><em>Evidence</em>: quarantined, review
+        only. <em>Advisory</em>: may inform suggestions. <em>Controlled</em>: may shape act-class
+        tools after formal review. Authority only increases through a recorded human decision.</p></div>
+      <div class="card reveal"><h3>endogenous / exogenous</h3><p>Endogenous: the system inferred
+        it from its own operational history; it enters quarantined, as a hypothesis held to a
+        higher evidence bar, and can never promote itself. Exogenous: a human carried it in
+        or confirmed it. Human judgment grounds and verifies machine inference.</p></div>
+      <div class="card reveal"><h3>conservative gate</h3><p>The release rule:
+        <code class="inline">&Delta;in &ge; 0 &and; &Delta;out &ge; 0 &and; max &gt; 0</code>.
+        A change may never trade one eval split against the other, even if the total improves.</p></div>
+      <div class="card reveal"><h3>capabilities.lock</h3><p>The bill of materials for learned
+        behaviour: every approved capability with its content hash, authority layer, approver,
+        and evidence references. One file per release.</p></div>
+      <div class="card reveal"><h3>evidence chain</h3><p>The append-only ledger:
+        <code class="inline">sha256(canonical(envelope) &#8214; prev_hash)</code>. Anyone can replay
+        it offline and detect insertion, alteration, or deletion.</p></div>
+    </div>
+    <p class="more reveal">The full set, including channels, consent scope, failure signatures,
+    and validation states, lives in
+    <a href="https://github.com/BrightbeamAI/brevet/blob/main/GLOSSARY.md">GLOSSARY.md</a>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>Brevet · Apache-2.0 · built on <a href="https://github.com/BrightbeamAI/chap">CHAP</a> · interoperates with <a href="https://github.com/BrightbeamAI/metis">Metis</a></div>
+    <div><a href="https://github.com/BrightbeamAI/brevet">github.com/BrightbeamAI/brevet</a></div>
+  </div>
+</footer>
+
+<script>
+/* ---------- theme ---------- */
+const root = document.documentElement;
+const toggle = document.getElementById("themetoggle"),
+      themeIcon = document.getElementById("themeicon"),
+      themeLabel = document.getElementById("themelabel");
+function applyTheme(t){
+  root.dataset.theme = t;
+  themeIcon.innerHTML = t === "dark" ? "&#9788;" : "&#9789;";
+  themeLabel.textContent = t === "dark" ? "Light" : "Dark";
+  try{ localStorage.setItem("brevet-theme", t); }catch(e){}
+}
+let saved = null;
+try{ saved = localStorage.getItem("brevet-theme"); }catch(e){}
+applyTheme(saved === "light" || saved === "dark" ? saved : "dark");
+toggle.onclick = () => applyTheme(root.dataset.theme === "dark" ? "light" : "dark");
+
+/* ---------- walkthrough ---------- */
+const steps = [
+ {tag:"WORK", title:"Tuesday happens", story:
+  `The wrapped agent drafts a triage for <b>DEV-4021, pump P-301 vibration high during CIP</b>. It says <i>severity: minor, log and monitor</i>. The harness it runs is immutable: exactly one signed version, v0.1.0.`,
+  analogy:"Like a co-pilot flying the approved procedure: helpful, but the procedure itself cannot drift mid-flight.",
+  code:`<span class="cm">// ledger: two envelopes appended</span>
+{ <span class="fn">"kind"</span>: <span class="st">"brevet.task"</span>,
+  <span class="fn">"body"</span>: { <span class="fn">"task"</span>: <span class="st">"triage DEV-4021 ..."</span>,
+            <span class="fn">"agent_version"</span>: <span class="st">"0.1.0"</span>,
+            <span class="fn">"channel"</span>: <span class="st">"shadow"</span> },
+  <span class="fn">"chain_hash"</span>: <span class="st">"sha256:0f31..."</span> }
+
+{ <span class="fn">"kind"</span>: <span class="st">"brevet.artefact"</span>,
+  <span class="fn">"body"</span>: { <span class="fn">"output"</span>: <span class="st">"severity: minor ..."</span> },
+  <span class="fn">"refs"</span>: [<span class="st">"env_task_..."</span>] }`},
+ {tag:"OVERRIDE", title:"The human ships their final", story:
+  `The QA reviewer changes <i>minor</i> to <b>major</b> and adds one sentence of why. Nobody fills in a form: <b>the diff between draft and final IS the override</b>. Brevet harvests it, classifies it as <i>substituting</i> (the decision changed, not just the wording), and chains it.`,
+  analogy:"A senior engineer's red pen on a junior's report, except the red ink is now structured data.",
+  code:`{ <span class="fn">"kind"</span>: <span class="st">"brevet.override"</span>,
+  <span class="fn">"body"</span>: {
+    <span class="fn">"participant"</span>: <span class="st">"human:qa@site"</span>,
+    <span class="fn">"intent_preserved"</span>: <span class="kw">false</span>,  <span class="cm">// substituting</span>
+    <span class="fn">"diff"</span>: [ { <span class="fn">"op"</span>: <span class="st">"replace"</span>,
+               <span class="fn">"draft_lines"</span>: [<span class="st">"severity: minor"</span>],
+               <span class="fn">"final_lines"</span>: [<span class="st">"severity: major"</span>] } ],
+    <span class="fn">"rationale"</span>: <span class="st">"Vibration on CIP duty is a
+                  seal-wear precursor."</span>,
+    <span class="fn">"tags"</span>: [<span class="st">"vibration-cip-underrated"</span>] } }`},
+ {tag:"DREAM", title:"Offline, the delta engine mines", story:
+  `Overnight, never mid-task, Brevet computes the <b>delta: enacted &#8854; specified</b>, where human decisions recurrently diverged from what the harness specified. Four overrides share one failure signature, so it emits <b>one candidate rule</b>. The candidate has <b>zero authority</b>. It cannot influence anything.`,
+  analogy:"The molecule, not the medicine: discovery is allowed to be bold precisely because approval is a separate act.",
+  code:`{ <span class="fn">"capability_id"</span>: <span class="st">"cap_845e127b3d5a"</span>,
+  <span class="fn">"kind"</span>: <span class="st">"prompt_rule"</span>,
+  <span class="fn">"content"</span>: <span class="st">"When vibration co-occurs with CIP duty,
+             treat severity as major ..."</span>,
+  <span class="fn">"source_pathway"</span>: <span class="st">"endogenous"</span>,
+  <span class="fn">"authority_layer"</span>: <span class="hl">"evidence"</span>,   <span class="cm">// quarantined</span>
+  <span class="fn">"evidence"</span>: { <span class="fn">"recurrence_count"</span>: <span class="nm">4</span>,
+                <span class="fn">"supporting_overrides"</span>: [<span class="st">"ovr_..."</span> &times;4] },
+  <span class="fn">"confidence"</span>: <span class="nm">0.4</span> }`},
+ {tag:"DAWN", title:"A human decides at the dawn gate", story:
+  `The mission group reviews the ranked queue and promotes the rule to <b>Advisory</b>. The invariant is structural, not polite: Brevet rejects approver identities in the <code class="inline">agent:*</code>, <code class="inline">model:*</code>, and <code class="inline">dream:*</code> namespaces. The process that proposed a candidate can never promote it.`,
+  analogy:"A brevet commission: rank granted by the signed warrant of a superior, never self-awarded.",
+  code:`<span class="kw">&gt;&gt;&gt;</span> agent.dawn(decide=(cap_id, <span class="st">"promote"</span>),
+...            approver=<span class="st">"dream:nightcycle"</span>)
+<span class="hl">PermissionError: dawn decisions require a
+human/mission-group approver identity</span>
+
+<span class="kw">&gt;&gt;&gt;</span> agent.dawn(decide=(cap_id, <span class="st">"promote"</span>),
+...            approver=<span class="st">"mission_group:rft"</span>)
+{ <span class="fn">"kind"</span>: <span class="st">"brevet.promotion"</span>,
+  <span class="fn">"body"</span>: { <span class="fn">"outcome"</span>: <span class="st">"promote"</span>,
+            <span class="fn">"to_layer"</span>: <span class="st">"advisory"</span>,
+            <span class="fn">"approver"</span>: <span class="st">"mission_group:rft"</span> } }`},
+ {tag:"EVALS", title:"The gate takes measurements, not vibes", story:
+  `Where is the test set for judgment work? <b>Brevet compiles it from the overrides themselves.</b> Every substituting override becomes a regression case whose expected answer is the human&rsquo;s final. Before the change: 0.00. After: 1.00. The conservative gate demands <code class="inline">&Delta;in &ge; 0 &and; &Delta;out &ge; 0 &and; max &gt; 0</code>: a candidate may never trade one split against the other.`,
+  analogy:"Machines check regressions; humans decide meaning.",
+  code:`<span class="kw">&gt;&gt;&gt;</span> before = agent.evaluate()
+{ <span class="fn">"held_in_pass_rate"</span>: <span class="nm">0.00</span>, <span class="fn">"held_out_pass_rate"</span>: <span class="nm">0.00</span> }
+
+<span class="cm"># apply the promoted rule to the harness...</span>
+
+<span class="kw">&gt;&gt;&gt;</span> after = agent.evaluate()
+{ <span class="fn">"held_in_pass_rate"</span>: <span class="nm">1.00</span>, <span class="fn">"held_out_pass_rate"</span>: <span class="nm">1.00</span> }
+
+<span class="kw">&gt;&gt;&gt;</span> EvalRunner.compare(before, after)
+{ <span class="fn">"delta_held_in"</span>: <span class="nm">+1.0</span>, <span class="fn">"delta_held_out"</span>: <span class="nm">+1.0</span>,
+  <span class="fn">"passed_gate"</span>: <span class="st">true</span> }  <span class="cm">// conservative gate: PASS</span>`},
+ {tag:"RELEASE", title:"v0.2.0: signed, locked, earned", story:
+  `The release resolves every approved capability into <b>capabilities.lock</b>, the bill of materials for learned behaviour, and signs the manifest (Ed25519 over canonical JSON). Channels move through <i>shadow, trial, production</i>. Releases are earned, never hero-deployed, and reversible by design.`,
+  analogy:"The aircraft leaves the hangar only with the maintenance release signed, and the log says who signed it.",
+  code:`<span class="cm">// capabilities.lock (one resolved entry)</span>
+{ <span class="fn">"capability_id"</span>: <span class="st">"cap_845e127b3d5a"</span>,
+  <span class="fn">"content_hash"</span>: <span class="st">"sha256:9c41..."</span>,
+  <span class="fn">"authority_layer"</span>: <span class="st">"advisory"</span>,
+  <span class="fn">"approved_by"</span>: <span class="st">"mission_group:rft"</span>,
+  <span class="fn">"evidence_refs"</span>: [<span class="st">"ovr_..."</span>, <span class="st">"ovr_..."</span>] }
+
+<span class="cm">// agent.yaml signature block</span>
+{ <span class="fn">"algorithm"</span>: <span class="st">"ed25519"</span>,
+  <span class="fn">"content_hash"</span>: <span class="st">"sha256:b7d2..."</span>,
+  <span class="fn">"signed_by"</span>: <span class="st">"mission_group:rft"</span> }`},
+ {tag:"RECALL", title:"It was wrong. Take it back, provably.", story:
+  `Engineering later shows the vibration signature was a sensor artefact: the rule over-generalises. One call revokes the capability by id and content hash, flags <b>every release whose lockfile contains it</b>, and drives rollback. It can never resolve into a lockfile again. Consent withdrawal takes the same path: recall, never silent deletion.`,
+  analogy:"A CVE for something your agent believed.",
+  code:`{ <span class="fn">"kind"</span>: <span class="st">"brevet.recall"</span>,
+  <span class="fn">"body"</span>: {
+    <span class="fn">"capability_id"</span>: <span class="st">"cap_845e127b3d5a"</span>,
+    <span class="fn">"reason"</span>: <span class="st">"sensor artefact on P-301 family;
+               rule over-generalises"</span>,
+    <span class="fn">"severity"</span>: <span class="st">"high"</span>,
+    <span class="fn">"issued_by"</span>: <span class="st">"mission_group:rft"</span>,
+    <span class="fn">"action"</span>: <span class="st">"rollback"</span>,
+    <span class="fn">"affected_releases"</span>: [
+      { <span class="fn">"version"</span>: <span class="st">"0.2.0"</span>, <span class="fn">"resolved_action"</span>: <span class="st">"rollback"</span> } ] } }`},
+ {tag:"VERIFY", title:"Don't take our word for any of it", story:
+  `Every step you just clicked through appended a hash-linked envelope: <code class="inline">sha256(canonical(envelope) &#8214; prev_hash)</code>. Anyone, an auditor, a client, a future you, can replay the chain offline and confirm nothing was inserted, altered, or quietly dropped. The demo&rsquo;s whole story is 44 envelopes.`,
+  analogy:"The flight recorder, not the press release.",
+  code:`<span class="kw">&gt;&gt;&gt;</span> agent.verify()
+(<span class="st">true</span>, <span class="nm">44</span>)   <span class="cm">// chain OK across 44 envelopes</span>
+
+<span class="kw">$</span> brevet verify
+verify: OK (44 envelopes)
+
+<span class="cm"># tamper with any historical line and:</span>
+<span class="kw">$</span> brevet verify
+<span class="hl">verify: BROKEN (chain fails at envelope 12)</span>`}
+];
+
+const stagesEl = document.getElementById("stages"),
+      storyEl = document.getElementById("story"),
+      evEl = document.getElementById("evidence"),
+      hintEl = document.getElementById("hint");
+let cur = 0, timer = null;
+
+steps.forEach((s, i) => {
+  const b = document.createElement("span");
+  b.className = "stage"; b.textContent = s.tag;
+  b.onclick = () => { stop(); go(i); };
+  stagesEl.appendChild(b);
+});
+
+function go(i){
+  cur = i;
+  [...stagesEl.children].forEach((el, j) => {
+    el.className = "stage" + (j < i ? " done" : j === i ? " active" : "");
+  });
+  const s = steps[i];
+  storyEl.innerHTML = `<div class="n">0${i+1}</div><h3>${s.title}</h3><p>${s.story}</p>` +
+                      `<div class="analogy">${s.analogy}</div>`;
+  evEl.innerHTML = s.code;
+  storyEl.classList.remove("swap-anim"); evEl.classList.remove("swap-anim");
+  void storyEl.offsetWidth;
+  storyEl.classList.add("swap-anim"); evEl.classList.add("swap-anim");
+  hintEl.textContent = `step ${i+1} of ${steps.length}`;
+}
+function stop(){ if(timer){ clearInterval(timer); timer = null; playBtn.innerHTML = "&#9654; Play the loop"; } }
+
+const playBtn = document.getElementById("play");
+document.getElementById("next").onclick = () => { stop(); go((cur+1) % steps.length); };
+document.getElementById("prev").onclick = () => { stop(); go((cur-1+steps.length) % steps.length); };
+playBtn.onclick = () => {
+  if(timer){ stop(); return; }
+  playBtn.innerHTML = "&#10074;&#10074; Pause";
+  go(cur);
+  timer = setInterval(() => {
+    if(cur === steps.length - 1){ stop(); return; }
+    go(cur + 1);
+  }, 5200);
+};
+go(0);
+
+/* ---------- integration tabs ---------- */
+const tabs = [
+["Any callable", `<span class="kw">import</span> brevet
+
+agent = brevet.wrap(my_function)                <span class="cm"># zero config</span>
+r = agent.run(<span class="st">"triage deviation DEV-4021"</span>, task_family=<span class="st">"deviation_triage"</span>)
+agent.record_final(r.task_id, edited_text, participant=<span class="st">"human:qa@site"</span>,
+                   rationale=<span class="st">"Vibration on CIP duty is a seal-wear precursor."</span>)`],
+["LangGraph", `<span class="kw">from</span> langgraph.prebuilt <span class="kw">import</span> create_react_agent
+<span class="kw">import</span> brevet
+
+graph = create_react_agent(model, tools=[...])
+agent = brevet.wrap(graph)                      <span class="cm"># auto-detected: 'langgraph'</span>
+r = agent.run(<span class="st">"summarise the batch record for B-88213"</span>)
+agent.record_final(r.task_id, reviewer_final, participant=<span class="st">"human:qa@site"</span>)`],
+["Claude Agent SDK", `<span class="kw">from</span> claude_agent_sdk <span class="kw">import</span> ClaudeSDKClient
+<span class="kw">import</span> brevet
+
+client = ClaudeSDKClient()
+agent = brevet.wrap(client)                     <span class="cm"># auto-detected: 'claude_agent_sdk'</span>
+r = agent.run(<span class="st">"draft the shift handover note"</span>)
+agent.record_final(r.task_id, supervisor_final, participant=<span class="st">"human:lead@site"</span>)`],
+["CrewAI", `<span class="kw">from</span> crewai <span class="kw">import</span> Crew
+<span class="kw">import</span> brevet
+
+crew = Crew(agents=[...], tasks=[...])
+agent = brevet.wrap(crew)                       <span class="cm"># auto-detected: 'crewai'</span>
+r = agent.run(<span class="st">"investigate the pressure-drop alert"</span>)`],
+["Custom adapter", `<span class="cm"># your in-house framework binds in one class</span>
+<span class="kw">@brevet</span>.register_adapter(<span class="st">"myfw"</span>, prefixes=(<span class="st">"myfw"</span>,))
+<span class="kw">class</span> <span class="fn">MyAdapter</span>(brevet.BaseAdapter):
+    <span class="kw">def</span> <span class="fn">invoke</span>(self, task, context):
+        <span class="kw">return</span> self.target.do(task), [{<span class="st">"step"</span>: <span class="st">"do"</span>}]
+
+agent = brevet.wrap(MyFrameworkThing())         <span class="cm"># detected: 'myfw'</span>`],
+["MCP", `<span class="cm"># serve the lifecycle to Claude Code / Desktop / Cursor / your agents</span>
+$ pip install <span class="st">"brevet[mcp] @ git+https://github.com/BrightbeamAI/brevet"</span>
+$ brevet mcp
+
+<span class="cm"># client config</span>
+{<span class="st">"mcpServers"</span>: {<span class="st">"brevet"</span>: {<span class="st">"command"</span>: <span class="st">"brevet"</span>, <span class="st">"args"</span>: [<span class="st">"mcp"</span>]}}}
+
+<span class="cm"># the invariant holds over MCP too: an agent calling brevet_dawn_decide
+# with approver="agent:me" is rejected. It cannot promote its own learning.</span>`]
+];
+const tabsEl = document.getElementById("tabs"), panesEl = document.getElementById("panes");
+tabs.forEach(([name, code], i) => {
+  const t = document.createElement("span");
+  t.className = "tab" + (i ? "" : " active"); t.textContent = name;
+  t.onclick = () => {
+    [...tabsEl.children].forEach((el, j) => el.className = "tab" + (j === i ? " active" : ""));
+    [...panesEl.children].forEach((el, j) => el.className = "tabpane" + (j === i ? " active" : ""));
+  };
+  tabsEl.appendChild(t);
+  const p = document.createElement("div");
+  p.className = "tabpane" + (i ? "" : " active");
+  p.innerHTML = `<pre>${code}</pre>`;
+  panesEl.appendChild(p);
+});
+
+/* ---------- reveal on scroll ---------- */
+const io = new IntersectionObserver(es => es.forEach(e => {
+  if(e.isIntersecting){ e.target.classList.add("on"); io.unobserve(e.target); }
+}), {threshold:.12});
+document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+const ioAxis = new IntersectionObserver(es => es.forEach(e => {
+  if(e.isIntersecting){ e.target.classList.add("on"); ioAxis.unobserve(e.target); }
+}), {threshold:.4});
+document.querySelectorAll(".axis").forEach(el => ioAxis.observe(el));
+</script>
+</body>
+</html>

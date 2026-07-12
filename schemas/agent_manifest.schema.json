@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brightbeam.ai/schemas/brevet/agent_manifest.schema.json",
+  "title": "AgentManifest",
+  "description": "agent.yaml: the harness as data, conforming to the five-layer Brightbeam Expert Agent Signature. A manifest is content-hashed and signed; the runtime refuses to execute anything unsigned. Every version transition is a CHAP-recorded release.",
+  "type": "object",
+  "required": ["agent", "version", "identity_policy", "prompt_architecture", "cognitive_core", "bindings", "runtime_safety"],
+  "properties": {
+    "agent": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "description": { "type": "string" },
+
+    "identity_policy": {
+      "type": "object",
+      "description": "Signature layer 01: who the agent is and its versioned may/may-not policy.",
+      "required": ["agent_id", "owner"],
+      "properties": {
+        "agent_id": { "type": "string" },
+        "owner": { "type": "string", "description": "Accountable human owner." },
+        "mission_group": { "type": ["string", "null"], "description": "The body holding promotion authority for this agent." },
+        "may": { "type": "array", "items": { "type": "string" } },
+        "may_not": { "type": "array", "items": { "type": "string" } },
+        "policy_refs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "prompt_architecture": {
+      "type": "object",
+      "description": "Signature layer 02: system/role prompts, context-injection schema, structured output, refusal and escalation triggers. Prompt rules learned at runtime are NOT edited here; they are advisory/controlled capability objects referenced through capabilities.lock.",
+      "properties": {
+        "system_prompt": { "type": ["string", "null"] },
+        "system_prompt_ref": { "type": ["string", "null"] },
+        "context_injection": { "type": ["object", "null"] },
+        "output_schema_ref": { "type": ["string", "null"] },
+        "refusal_triggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "cognitive_core": {
+      "type": "object",
+      "description": "Signature layer 03: the model, right-sized, local-first.",
+      "required": ["model_policy"],
+      "properties": {
+        "model_policy": {
+          "type": "object",
+          "required": ["local_default"],
+          "properties": {
+            "local_default": { "type": "string", "examples": ["ollama:gemma4:12b", "ollama:gemma4:31b"] },
+            "allowed_remote": { "type": "array", "items": { "type": "string" }, "examples": [["claude", "gpt"]] },
+            "routing_rules": { "type": "array", "items": { "type": "object" }, "description": "Route to the cheapest competent core; remote models by deliberate rule, never by default." }
+          }
+        }
+      }
+    },
+
+    "bindings": {
+      "type": "object",
+      "description": "Signature layer 04: the tools, data, and memory the agent may reach, under the read/act contract. Every act-class binding is gated; every call is logged.",
+      "properties": {
+        "tools": {
+          "type": "object",
+          "properties": {
+            "read": { "type": "array", "items": { "type": "string" } },
+            "suggest": { "type": "array", "items": { "type": "string" } },
+            "act": { "type": "array", "items": { "type": "string" } },
+            "controlled_act": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "properties": {
+            "procedural": { "type": "boolean", "default": true },
+            "semantic": { "type": "boolean", "default": true },
+            "episodic": { "type": "boolean", "default": true },
+            "tacit": {
+              "type": ["object", "null"],
+              "properties": {
+                "provider": { "type": "string", "const": "metis" },
+                "endpoint": { "type": ["string", "null"] },
+                "retrieval": { "type": "string", "const": "conditions_first" }
+              }
+            }
+          }
+        },
+        "capabilities_lock": { "type": "string", "default": "capabilities.lock", "description": "Path to the lockfile enumerating every learned capability bound into this release." }
+      }
+    },
+
+    "runtime_safety": {
+      "type": "object",
+      "description": "Signature layer 05: loop, budgets, escalation, evidence, evals, observability. The Deployment Legitimacy rail.",
+      "required": ["loop", "evidence"],
+      "properties": {
+        "loop": {
+          "type": "object",
+          "required": ["policy"],
+          "properties": {
+            "policy": { "type": "string", "description": "A loop_policy capability ref (e.g. cap_loop_pev@0.2) or a built-in: react | ooda | plan_execute_verify.", "examples": ["react", "ooda", "plan_execute_verify", "cap_1a2b3c4d"] },
+            "max_iterations": { "type": "integer", "minimum": 1, "default": 8 },
+            "budgets": { "type": "object", "properties": { "max_tool_errors": { "type": ["integer", "null"] }, "max_tool_calls": { "type": ["integer", "null"] }, "wall_clock_s": { "type": ["integer", "null"] } } }
+          }
+        },
+        "escalation_policy": { "type": ["string", "null"] },
+        "evidence": {
+          "type": "object",
+          "required": ["ledger"],
+          "properties": {
+            "ledger": { "type": "string", "description": "chap:<workspace_id> for a live CHAP coordinator, or file:<path>.jsonl for the built-in hash-linked local ledger.", "examples": ["chap:wsp_deviation_cell_3", "file:./ledger.jsonl"] },
+            "profiles": { "type": "array", "items": { "type": "string" }, "default": ["core/1.0", "review/1.0", "brevet/1.0"] },
+            "capture_overrides": { "type": "boolean", "default": true }
+          }
+        },
+        "evals": {
+          "type": "object",
+          "properties": {
+            "regression_suite": { "type": ["string", "null"], "description": "Compiled from override history by `brevet compile-evals`." },
+            "gate": { "type": "string", "enum": ["conservative"], "default": "conservative", "description": "conservative: delta_held_in >= 0 AND delta_held_out >= 0 AND max(deltas) > 0." },
+            "repeats": { "type": "integer", "minimum": 1, "default": 3 }
+          }
+        },
+        "dream": {
+          "type": "object",
+          "description": "The offline cycle. The waking agent is immutable; adaptation is proposed here and promoted only at the dawn gate.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "schedule": { "type": ["string", "null"], "examples": ["02:00"] },
+            "consent_scope": { "type": "string", "enum": ["consented_sources_only"], "default": "consented_sources_only" }
+          }
+        }
+      }
+    },
+
+    "release": {
+      "type": "object",
+      "properties": {
+        "channel": { "type": "string", "enum": ["shadow", "trial", "production"], "default": "shadow" }
+      }
+    },
+
+    "signature": {
+      "type": ["object", "null"],
+      "description": "Set by `brevet release`. The runtime refuses unsigned manifests outside shadow channel.",
+      "properties": {
+        "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "algorithm": { "type": "string", "const": "ed25519" },
+        "signed_by": { "type": "string" },
+        "signed_at": { "type": "string", "format": "date-time" },
+        "signature": { "type": "string" }
+      }
+    }
+  }
+}

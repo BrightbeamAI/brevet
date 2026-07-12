@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brightbeam.ai/schemas/brevet/release_record.schema.json",
+  "title": "ReleaseRecord",
+  "description": "One transition in an agent's harness lineage h0, h1, ... Every release is a bounded, evidenced, reversible edit, never a silent rewrite.",
+  "type": "object",
+  "required": ["agent", "from_version", "to_version", "channel", "approved_by"],
+  "properties": {
+    "release_id": { "type": "string", "pattern": "^rel_[a-z0-9]{8,}$" },
+    "agent": { "type": "string" },
+    "from_version": { "type": ["string", "null"] },
+    "to_version": { "type": "string" },
+    "channel": { "type": "string", "enum": ["shadow", "trial", "production"] },
+    "promoted_capabilities": { "type": "array", "items": { "type": "string" } },
+    "removed_capabilities": { "type": "array", "items": { "type": "string" } },
+    "manifest_hash": { "type": "string" },
+    "lockfile_hash": { "type": "string" },
+    "eval_summary": {
+      "type": "object",
+      "properties": {
+        "suite": { "type": ["string", "null"] },
+        "delta_held_in": { "type": ["number", "null"] },
+        "delta_held_out": { "type": ["number", "null"] },
+        "repeats": { "type": ["integer", "null"] },
+        "gate": { "type": ["string", "null"] },
+        "passed": { "type": ["boolean", "null"] }
+      }
+    },
+    "approved_by": { "type": "string" },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "decision_ref": { "type": ["string", "null"], "description": "CHAP decide.approve envelope id." },
+    "rollback_to": { "type": ["string", "null"], "description": "Version restored if this release is rolled back." },
+    "rationale": { "type": ["string", "null"] }
+  }
+}

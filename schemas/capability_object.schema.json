@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brightbeam.ai/schemas/brevet/capability_object.schema.json",
+  "title": "CapabilityObject",
+  "description": "The unit of learned capability. Generalises the Metis tacit-fragment tuple <content, provenance, conditions, confidence, authority, validation-state> to every kind of thing an agent can learn: prompt rules, loop policies, tool bindings, skills, eval cases, escalation rules, and references to governed memory fragments. A capability object never influences agent behaviour outside its authority layer, and never enters a signed release except through a recorded promotion decision.",
+  "type": "object",
+  "required": ["capability_id", "title", "kind", "content", "content_hash"],
+  "properties": {
+    "capability_id": {
+      "type": "string",
+      "pattern": "^cap_[a-z0-9]{8,}$",
+      "description": "Stable identifier, e.g. cap_7f3a9c21."
+    },
+    "title": { "type": "string", "maxLength": 200 },
+    "kind": { "$ref": "#/$defs/CapabilityKind" },
+    "content": {
+      "type": "string",
+      "description": "The payload as canonical text. For structured kinds (loop_policy, eval_case, tool_binding) this is canonical JSON conforming to the matching payload sub-schema; for prompt_rule and escalation_rule it is the rule text itself; for memory_fragment it is empty and fragment_ref is required."
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "sha256 over the JCS-canonicalised content. This is the identity that appears in capabilities.lock and in recall notices."
+    },
+    "payload_schema": {
+      "type": ["string", "null"],
+      "description": "For structured kinds, the $id of the sub-schema the content conforms to."
+    },
+    "fragment_ref": {
+      "type": ["string", "null"],
+      "description": "For kind=memory_fragment only: the Metis fragment_id this object binds into the agent. Metis remains the system of record; Brevet records the binding, its conditions, and its release lineage."
+    },
+    "source_pathway": { "$ref": "#/$defs/SourcePathway", "default": "endogenous" },
+    "provenance": { "$ref": "#/$defs/Provenance" },
+    "conditions": { "$ref": "#/$defs/ApplicabilityContext" },
+    "evidence": { "$ref": "#/$defs/CapabilityEvidence" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "authority_layer": { "$ref": "#/$defs/AuthorityLayer", "default": "evidence" },
+    "validation_state": { "$ref": "#/$defs/ValidationState", "default": "captured" },
+    "revocation_status": { "$ref": "#/$defs/RevocationStatus", "default": "active" },
+    "consent": {
+      "type": ["object", "null"],
+      "description": "Required when provenance includes human-derived material (overrides, whisper responses, worker traces). Shape follows the Metis tacit_consent_record schema."
+    },
+    "lineage": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered refs: mining runs, CHAP envelope ids, prior capability versions, validation events, promotion records."
+    },
+    "policy_refs": { "type": "array", "items": { "type": "string" } },
+    "use_constraints": { "type": "array", "items": { "type": "string" } },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "review_due_at": { "type": ["string", "null"], "format": "date-time" },
+    "expiry_triggers": { "type": "array", "items": { "type": "string" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "memory_fragment" } } },
+      "then": { "required": ["fragment_ref"] }
+    },
+    {
+      "if": { "properties": { "authority_layer": { "const": "controlled" } } },
+      "then": { "required": ["provenance", "evidence", "conditions"] }
+    }
+  ],
+  "$defs": {
+    "CapabilityKind": {
+      "type": "string",
+      "enum": [
+        "prompt_rule",
+        "loop_policy",
+        "tool_binding",
+        "skill",
+        "eval_case",
+        "escalation_rule",
+        "memory_fragment"
+      ],
+      "description": "prompt_rule: an instruction added to the prompt architecture. loop_policy: a control-flow policy (loop type, budgets, verification steps) selected by conditions. tool_binding: a tool made available under the read/act contract. skill: a reusable executable routine. eval_case: a regression/rubric test, typically compiled from an override. escalation_rule: a condition under which the agent must hand off to a human. memory_fragment: a binding of a Metis-governed tacit fragment into this agent."
+    },
+    "SourcePathway": { "type": "string", "enum": ["exogenous", "endogenous"] },
+    "AuthorityLayer": {
+      "type": "string",
+      "enum": ["evidence", "advisory", "controlled"],
+      "description": "evidence: may not influence behaviour or enter a release; exists for review. advisory: may enter a release; may shape suggest-class behaviour. controlled: may shape act-class behaviour; promotion requires change-control metadata and a Mission Group decision."
+    },
+    "ValidationState": {
+      "type": "string",
+      "enum": [
+        "captured", "worker_confirmed", "tier1_confirmed", "tier2_pending",
+        "promoted_to_advisory", "promoted_to_controlled", "held", "rejected",
+        "re_elicit", "withdrawn", "superseded", "expired"
+      ]
+    },
+    "RevocationStatus": {
+      "type": "string",
+      "enum": ["active", "withdrawn", "superseded", "rejected", "under_re_elicitation", "retired"]
+    },
+    "Provenance": {
+      "type": "object",
+      "properties": {
+        "mined_by": { "type": ["string", "null"], "description": "Delta-engine run id or capture cell id." },
+        "originating_participant": { "type": ["string", "null"] },
+        "source_traces": { "type": "array", "items": { "type": "string" }, "description": "CHAP task/trace refs (enacted side of the delta)." },
+        "source_overrides": { "type": "array", "items": { "type": "string" }, "description": "CHAP decide.override envelope refs that labelled or corrected the behaviour." },
+        "source_artefacts": { "type": "array", "items": { "type": "string" } },
+        "specified_refs": { "type": "array", "items": { "type": "string" }, "description": "Harness version / procedure refs (specified side of the delta)." },
+        "capture_method": { "type": ["string", "null"] },
+        "timestamp": { "type": ["string", "null"], "format": "date-time" },
+        "human_confirmed_by": { "type": ["string", "null"] },
+        "mission_group_reviewed_by": { "type": ["string", "null"] },
+        "model_provider": { "type": ["string", "null"] },
+        "model_name": { "type": ["string", "null"] },
+        "model_prompt_template": { "type": ["string", "null"] },
+        "model_output_status": { "type": ["string", "null"], "enum": ["draft", "human_reviewed", "rejected", null] },
+        "model_assist_refs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ApplicabilityContext": {
+      "type": "object",
+      "description": "Conditions are evaluated computationally BEFORE any similarity ranking (conditions-first retrieval). A capability whose conditions do not match is not weakened; it is withheld, and out-of-envelope near-matches escalate.",
+      "properties": {
+        "task_family": { "type": ["string", "null"] },
+        "domain": { "type": ["string", "null"] },
+        "model_family": { "type": ["string", "null"], "description": "Capabilities are model-specific by default (harness edits rarely transfer across model families unexamined)." },
+        "tool_scope": { "type": "array", "items": { "type": "string" } },
+        "role": { "type": ["string", "null"] },
+        "risk_class": { "type": ["string", "null"], "enum": ["low", "medium", "high", "critical", null] },
+        "operating_mode": { "type": ["string", "null"] },
+        "environment": { "type": ["string", "null"] },
+        "trigger_context": { "type": ["string", "null"] },
+        "exclusion_conditions": { "type": "array", "items": { "type": "string" } },
+        "valid_from": { "type": ["string", "null"], "format": "date-time" },
+        "valid_until": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "CapabilityEvidence": {
+      "type": "object",
+      "properties": {
+        "recurrence_count": { "type": "integer", "minimum": 0 },
+        "supporting_traces": { "type": "array", "items": { "type": "string" } },
+        "supporting_overrides": { "type": "array", "items": { "type": "string" } },
+        "counterexamples": { "type": "array", "items": { "type": "string" } },
+        "eval_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "suite": { "type": "string" },
+              "delta_held_in": { "type": "number" },
+              "delta_held_out": { "type": "number" },
+              "repeats": { "type": "integer" },
+              "passed_gate": { "type": "boolean" },
+              "run_ref": { "type": "string" }
+            }
+          }
+        },
+        "comparison_baseline": { "type": ["string", "null"] },
+        "uncertainty": { "type": ["string", "null"] },
+        "review_notes": { "type": ["string", "null"] },
+        "evidence_strength": { "type": "string", "enum": ["none", "weak", "moderate", "strong"], "default": "none" }
+      }
+    }
+  }
+}

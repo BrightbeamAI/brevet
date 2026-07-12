@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brightbeam.ai/schemas/brevet/recall_notice.schema.json",
+  "title": "RecallNotice",
+  "description": "The un-learning primitive. A recall marks one capability revoked, identifies every release whose lockfile contains it, and drives affected agents to a last-good version. The advisory format is deliberately CVE-like: learned capability needs the same logistics software vulnerabilities got.",
+  "type": "object",
+  "required": ["recall_id", "capability_id", "reason", "severity", "issued_by", "action"],
+  "properties": {
+    "recall_id": { "type": "string", "pattern": "^rcl_[a-z0-9]{8,}$" },
+    "capability_id": { "type": "string" },
+    "content_hash": { "type": ["string", "null"] },
+    "reason": { "type": "string" },
+    "reason_class": {
+      "type": "string",
+      "enum": ["incorrect", "unsafe", "consent_withdrawn", "superseded", "stale", "compliance", "other"]
+    },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "issued_by": { "type": "string" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "action": { "type": "string", "enum": ["quarantine", "rollback", "re_review"] },
+    "affected_releases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent": { "type": "string" },
+          "version": { "type": "string" },
+          "resolved_action": { "type": ["string", "null"] },
+          "resolved_at": { "type": ["string", "null"], "format": "date-time" }
+        }
+      }
+    },
+    "control_refs": { "type": "array", "items": { "type": "string" }, "description": "CHAP control.supersede / control.rollback envelope ids proving the recall executed." },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

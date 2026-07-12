@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brightbeam.ai/schemas/brevet/capabilities_lock.schema.json",
+  "title": "CapabilitiesLock",
+  "description": "capabilities.lock: the Capability Bill of Materials for one agent release. Answers 'what does this agent know, where did each piece come from, and who approved it' in one file. Only advisory- and controlled-layer capabilities may appear; evidence-layer material can never be locked into a release.",
+  "type": "object",
+  "required": ["agent", "agent_version", "resolved"],
+  "properties": {
+    "agent": { "type": "string" },
+    "agent_version": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "lockfile_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "resolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["capability_id", "kind", "content_hash", "authority_layer", "approved_by", "approved_at"],
+        "properties": {
+          "capability_id": { "type": "string" },
+          "kind": { "type": "string" },
+          "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "authority_layer": { "type": "string", "enum": ["advisory", "controlled"] },
+          "conditions_digest": { "type": ["string", "null"], "description": "Hash of the applicability conditions at lock time; a condition change forces re-lock." },
+          "approved_by": { "type": "string" },
+          "approved_at": { "type": "string", "format": "date-time" },
+          "promotion_ref": { "type": ["string", "null"], "description": "CHAP decide.* envelope id for the promotion decision." },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "revocation_status": { "type": "string", "default": "active" }
+        }
+      }
+    }
+  }
+}

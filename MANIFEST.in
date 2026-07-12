@@ -1,0 +1,3 @@
+include LICENSE README.md ABOUT.md GLOSSARY.md SPEC.md BENCHMARK.md CHANGELOG.md
+recursive-include schemas *.json
+recursive-include tests *.py

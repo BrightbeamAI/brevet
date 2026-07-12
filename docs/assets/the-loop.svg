@@ -1,0 +1,150 @@
+<svg viewBox="0 0 1200 736" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF9900"/>
+    </marker>
+    <marker id="ahr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#EA4700"/>
+    </marker>
+  </defs>
+
+  <!-- canvas -->
+  <rect x="0" y="0" width="1200" height="736" rx="18" fill="#1B1C1E" stroke="#3A3C40"/>
+
+  <!-- title -->
+  <text x="48" y="54" font-size="27" font-weight="bold" fill="#F5F5F5">The governed evolution loop</text>
+  <text x="48" y="80" font-size="15" fill="#B3B8BF">agents propose deltas · evidence tests them · humans promote them · the runtime only executes signed versions</text>
+
+  <!-- ================= card 1 · WORK ================= -->
+  <rect x="48" y="110" width="340" height="200" rx="14" fill="#242528" stroke="#3A3C40" stroke-width="1.5"/>
+  <rect x="48" y="110" width="340" height="5" rx="2.5" fill="#FF9900"/>
+  <circle cx="84" cy="150" r="15" fill="#FF9900"/>
+  <text x="84" y="156" font-size="16" font-weight="bold" fill="#1B1C1E" text-anchor="middle">1</text>
+  <text x="110" y="156" font-size="17.5" font-weight="bold" fill="#FF9900" letter-spacing="1.5">WORK</text>
+  <g stroke="#FF9900" stroke-width="2.2" stroke-linecap="round" fill="none">
+    <circle cx="352" cy="149" r="9"/>
+    <line x1="352" y1="132" x2="352" y2="127"/><line x1="352" y1="171" x2="352" y2="166"/>
+    <line x1="335" y1="149" x2="330" y2="149"/><line x1="374" y1="149" x2="369" y2="149"/>
+    <line x1="340" y1="137" x2="336" y2="133"/><line x1="364" y1="161" x2="368" y2="165"/>
+    <line x1="364" y1="137" x2="368" y2="133"/><line x1="340" y1="161" x2="336" y2="165"/>
+  </g>
+  <text x="72" y="196" font-size="15" fill="#E7E9EC">The agent runs the signed harness,</text>
+  <text x="72" y="217" font-size="15" fill="#E7E9EC">v0.1.0. It cannot edit itself.</text>
+  <rect x="72" y="236" width="292" height="34" rx="8" fill="#2C2D31" stroke="#3A3C40"/>
+  <text x="88" y="258" font-family="Consolas, Menlo, monospace" font-size="13.5" fill="#B3B8BF">DEV-4021  →  severity: minor</text>
+  <text x="72" y="294" font-size="13" fill="#8A8F98">every task and draft chained as evidence</text>
+
+  <line x1="388" y1="210" x2="426" y2="210" stroke="#FF9900" stroke-width="2.5" marker-end="url(#ah)"/>
+
+  <!-- ================= card 2 · OVERRIDE ================= -->
+  <rect x="430" y="110" width="340" height="200" rx="14" fill="#242528" stroke="#3A3C40" stroke-width="1.5"/>
+  <rect x="430" y="110" width="340" height="5" rx="2.5" fill="#FF9900"/>
+  <circle cx="466" cy="150" r="15" fill="#FF9900"/>
+  <text x="466" y="156" font-size="16" font-weight="bold" fill="#1B1C1E" text-anchor="middle">2</text>
+  <text x="492" y="156" font-size="17.5" font-weight="bold" fill="#FF9900" letter-spacing="1.5">OVERRIDE</text>
+  <g stroke="#FF9900" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 726 162 L 748 140 L 754 146 L 732 168 L 724 170 z"/>
+    <line x1="722" y1="170" x2="716" y2="170"/>
+  </g>
+  <text x="454" y="196" font-size="15" fill="#E7E9EC">The human ships the corrected final.</text>
+  <text x="454" y="217" font-size="15" fill="#E7E9EC">The diff becomes the override.</text>
+  <rect x="454" y="236" width="292" height="34" rx="8" fill="#2C2D31" stroke="#3A3C40"/>
+  <text x="470" y="258" font-family="Consolas, Menlo, monospace" font-size="13.5" fill="#B3B8BF">minor  →  major, plus the why</text>
+  <text x="454" y="294" font-size="13" fill="#8A8F98">no forms. the diff is the data</text>
+
+  <line x1="770" y1="210" x2="808" y2="210" stroke="#FF9900" stroke-width="2.5" marker-end="url(#ah)"/>
+
+  <!-- ================= card 3 · DREAM ================= -->
+  <rect x="812" y="110" width="340" height="200" rx="14" fill="#232430" stroke="#3A3C40" stroke-width="1.5"/>
+  <rect x="812" y="110" width="340" height="5" rx="2.5" fill="#7FA6E8"/>
+  <circle cx="848" cy="150" r="15" fill="#7FA6E8"/>
+  <text x="848" y="156" font-size="16" font-weight="bold" fill="#1B1C1E" text-anchor="middle">3</text>
+  <text x="874" y="156" font-size="17.5" font-weight="bold" fill="#7FA6E8" letter-spacing="1.5">DREAM</text>
+  <path d="M 1122 138 a 13 13 0 1 0 9 22 a 10.5 10.5 0 0 1 -9 -22 z" fill="#7FA6E8"/>
+  <text x="836" y="196" font-size="15" fill="#E7E9EC">Asleep, it compares what happened</text>
+  <text x="836" y="217" font-size="15" fill="#E7E9EC">against what the rule specified.</text>
+  <rect x="836" y="236" width="292" height="34" rx="8" fill="#2C2D31" stroke="#3A3C40"/>
+  <text x="852" y="258" font-family="Consolas, Menlo, monospace" font-size="13.5" fill="#B3B8BF">4 overrides  →  1 candidate</text>
+  <text x="836" y="294" font-size="13" fill="#8A8F98">candidates hold zero authority, by design</text>
+
+  <line x1="982" y1="310" x2="982" y2="374" stroke="#FF9900" stroke-width="2.5" marker-end="url(#ah)"/>
+  <text x="996" y="346" font-size="13" fill="#FF9900">candidates</text>
+
+  <!-- ================= card 4 · DAWN ================= -->
+  <rect x="812" y="378" width="340" height="200" rx="14" fill="#242528" stroke="#EA4700" stroke-width="2"/>
+  <rect x="812" y="378" width="340" height="5" rx="2.5" fill="#EA4700"/>
+  <circle cx="848" cy="418" r="15" fill="#EA4700"/>
+  <text x="848" y="424" font-size="16" font-weight="bold" fill="#FFFFFF" text-anchor="middle">4</text>
+  <text x="874" y="424" font-size="17.5" font-weight="bold" fill="#FF7A45" letter-spacing="1.5">DAWN</text>
+  <g stroke="#FF7A45" stroke-width="2.2" stroke-linecap="round" fill="none">
+    <path d="M 1106 428 a 16 16 0 0 1 32 0" />
+    <line x1="1100" y1="428" x2="1138" y2="428"/>
+    <g>
+      <line x1="1122" y1="404" x2="1122" y2="399"/>
+      <line x1="1108" y1="410" x2="1104" y2="406"/>
+      <line x1="1136" y1="410" x2="1140" y2="406"/>
+    </g>
+  </g>
+  <text x="836" y="464" font-size="15" fill="#E7E9EC">A named human promotes, holds,</text>
+  <text x="836" y="485" font-size="15" fill="#E7E9EC">or rejects each candidate.</text>
+  <rect x="836" y="504" width="292" height="34" rx="8" fill="#2C2D31" stroke="#3A3C40"/>
+  <text x="852" y="526" font-family="Consolas, Menlo, monospace" font-size="13.5" fill="#B3B8BF">promote  →  advisory</text>
+  <text x="836" y="562" font-size="13" fill="#FF7A45">self-approval is structurally rejected</text>
+
+  <line x1="808" y1="478" x2="770" y2="478" stroke="#FF9900" stroke-width="2.5" marker-end="url(#ah)"/>
+
+  <!-- ================= card 5 · EVALS ================= -->
+  <rect x="430" y="378" width="340" height="200" rx="14" fill="#242528" stroke="#3A3C40" stroke-width="1.5"/>
+  <rect x="430" y="378" width="340" height="5" rx="2.5" fill="#FF9900"/>
+  <circle cx="466" cy="418" r="15" fill="#FF9900"/>
+  <text x="466" y="424" font-size="16" font-weight="bold" fill="#1B1C1E" text-anchor="middle">5</text>
+  <text x="492" y="424" font-size="17.5" font-weight="bold" fill="#FF9900" letter-spacing="1.5">EVALS</text>
+  <g stroke="#FF9900" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M 716 434 a 18 18 0 0 1 36 0"/>
+    <line x1="734" y1="434" x2="744" y2="422"/>
+    <circle cx="734" cy="434" r="2.4" fill="#FF9900"/>
+  </g>
+  <text x="454" y="464" font-size="15" fill="#E7E9EC">Your overrides replay as the</text>
+  <text x="454" y="485" font-size="15" fill="#E7E9EC">regression suite. The gate is strict:</text>
+  <rect x="454" y="504" width="292" height="34" rx="8" fill="#2C2D31" stroke="#3A3C40"/>
+  <text x="470" y="526" font-family="Consolas, Menlo, monospace" font-size="13.5" fill="#B3B8BF">Δin ≥ 0 ∧ Δout ≥ 0 ∧ max &gt; 0</text>
+  <text x="454" y="562" font-size="13" fill="#8A8F98">no trading one split against the other</text>
+
+  <line x1="426" y1="478" x2="388" y2="478" stroke="#FF9900" stroke-width="2.5" marker-end="url(#ah)"/>
+
+  <!-- ================= card 6 · RELEASE ================= -->
+  <rect x="48" y="378" width="340" height="200" rx="14" fill="#242528" stroke="#3A3C40" stroke-width="1.5"/>
+  <rect x="48" y="378" width="340" height="5" rx="2.5" fill="#3FBF71"/>
+  <circle cx="84" cy="418" r="15" fill="#3FBF71"/>
+  <text x="84" y="424" font-size="16" font-weight="bold" fill="#1B1C1E" text-anchor="middle">6</text>
+  <text x="110" y="424" font-size="17.5" font-weight="bold" fill="#3FBF71" letter-spacing="1.5">RELEASE</text>
+  <g stroke="#3FBF71" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <circle cx="352" cy="416" r="11"/>
+    <path d="M 347 416 L 351 420 L 358 411"/>
+    <path d="M 345 425 L 341 437 M 359 425 L 363 437"/>
+  </g>
+  <text x="72" y="464" font-size="15" fill="#E7E9EC">Approved learning locks into the</text>
+  <text x="72" y="485" font-size="15" fill="#E7E9EC">next signed version of the agent.</text>
+  <rect x="72" y="504" width="292" height="34" rx="8" fill="#2C2D31" stroke="#3A3C40"/>
+  <text x="88" y="526" font-family="Consolas, Menlo, monospace" font-size="13.5" fill="#B3B8BF">capabilities.lock · ed25519</text>
+  <text x="72" y="562" font-size="13" fill="#8A8F98">channels: shadow → trial → production</text>
+
+  <!-- wake arrow 6 -> 1 -->
+  <line x1="218" y1="374" x2="218" y2="314" stroke="#FF9900" stroke-width="2.5" marker-end="url(#ah)"/>
+  <text x="232" y="340" font-size="13" fill="#FF9900">the agent wakes as v0.2.0</text>
+  <text x="232" y="356" font-size="13" fill="#8A8F98">and the loop begins again</text>
+
+  <!-- recall band -->
+  <path d="M 120 578 C 120 600, 130 606, 140 616" fill="none" stroke="#EA4700" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ahr)"/>
+  <rect x="48" y="620" width="1104" height="62" rx="12" fill="#26201E" stroke="#EA4700" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <g stroke="#FF7A45" stroke-width="2.2" stroke-linecap="round" fill="none">
+    <path d="M 92 651 a 12 12 0 1 1 4 9"/>
+    <path d="M 88 644 L 92 653 L 101 649" fill="none"/>
+  </g>
+  <text x="122" y="647" font-size="14.5" font-weight="bold" fill="#FF7A45">RECALL, the emergency brake:</text>
+  <text x="360" y="647" font-size="13.5" fill="#D8B4AA">revoke a capability by content hash, flag every release that shipped it, roll back.</text>
+  <text x="122" y="668" font-size="13" fill="#8A8F98">provable from the evidence chain alone. consent withdrawal takes the same path, never silent deletion</text>
+
+  <!-- footer -->
+  <text x="600" y="716" font-size="12.5" fill="#8A8F98" text-anchor="middle">every step appends a hash-linked envelope: sha256(canonical(envelope) ‖ prev_hash), replayable offline by anyone</text>
+</svg>

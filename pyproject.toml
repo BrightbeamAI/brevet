@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brevet"
+version = "0.1.0"
+description = "Change control for what AI agents learn: signed harnesses, evidence chains, human-gated promotion, override-compiled evals, and capability recall. Wraps LangGraph, Claude Agent SDK, AutoGen, CrewAI, and six more frameworks rather than replacing them."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "Brevet contributors" }]
+keywords = ["agents", "governance", "self-evolving", "harness", "chap", "metis", "audit", "capability"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "pydantic>=2.5",
+  "typer>=0.9",
+  "PyYAML>=6.0",
+  "cryptography>=41.0",
+]
+
+[project.optional-dependencies]
+chap = ["chap-coordinator>=0.2.5"]
+metis = ["metis-memory>=0.1.0"]
+mcp = ["mcp>=1.2"]
+dev = ["pytest>=7", "ruff>=0.4", "jsonschema>=4", "mcp>=1.2"]
+
+[project.scripts]
+brevet = "brevet.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/BrightbeamAI/brevet"
+Repository = "https://github.com/BrightbeamAI/brevet"
+Issues = "https://github.com/BrightbeamAI/brevet/issues"
+"CHAP protocol" = "https://github.com/BrightbeamAI/chap"
+"Metis memory" = "https://github.com/BrightbeamAI/metis"
+
+[tool.setuptools.packages.find]
+include = ["brevet*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

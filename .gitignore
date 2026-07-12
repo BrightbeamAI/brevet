@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Brevet runtime state (never commit keys or ledgers)
+.brevet/
+brevet_demo/
+*.pem
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
