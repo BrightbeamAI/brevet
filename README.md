@@ -28,16 +28,13 @@ a learning agent is: *what does it know, who approved it, and how do we
 take it back when it is wrong?* Brevet answers all three, and binds to
 whatever you already build on.
 
-Brevet is a local-first Python toolkit. It wraps the agent framework you
-already use, harvests the corrections experts make to the agent's work,
+Brevet is a local-first Python runtime that wraps the agent framework you
+already use. It harvests the corrections experts make to the agent's work
 and turns them into **governed capabilities**: mined as candidates,
 promoted by named humans, locked into signed releases, revocable with
-proof. It extends the governance model of the paper *Operationalising
-Tacit Knowledge as a Governed Memory Layer for Agentic AI* from memory to
-everything an agent learns, and it records every step on a hash-linked,
-replayable evidence chain that follows the
-[CHAP](https://github.com/BrightbeamAI/chap) envelope model and can mirror
-through the official CHAP coordinator. One doctrine:
+proof. Every step lands on a hash-linked, replayable evidence chain that
+follows the [CHAP](https://github.com/BrightbeamAI/chap) envelope model
+and can mirror through the official CHAP coordinator. One doctrine:
 
 > Agents propose deltas; evidence tests them; humans promote them;
 > the runtime only ever executes signed versions.
