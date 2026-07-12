@@ -18,7 +18,7 @@ releases.</b></p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/tests-31%20passing-brightgreen.svg" alt="Tests: 31 passing">
   <img src="https://img.shields.io/badge/local--first-no%20cloud%20APIs-555.svg" alt="Local-first: no cloud APIs">
-  <a href="https://github.com/BrightbeamAI/chap"><img src="https://img.shields.io/badge/built%20on-CHAP-EA4700.svg" alt="Built on CHAP"></a>
+  <a href="https://github.com/BrightbeamAI/chap"><img src="https://img.shields.io/badge/CHAP-compatible-EA4700.svg" alt="CHAP-compatible"></a>
 </p>
 
 ---
@@ -34,9 +34,10 @@ already use and turns those corrections into **governed capabilities**: mined
 as candidates, approved by a named human group, locked into signed and
 versioned releases, and revocable with proof. It extends the governance model
 of the paper *Operationalising Tacit Knowledge as a Governed Memory Layer for
-Agentic AI* from memory to everything an agent learns, and it runs on
-[CHAP](https://github.com/BrightbeamAI/chap) so every step is recorded on a
-hash-linked, replayable evidence chain. One doctrine:
+Agentic AI* from memory to everything an agent learns. Every step is recorded
+on Brevet's own hash-linked, replayable evidence chain; the records follow
+the [CHAP](https://github.com/BrightbeamAI/chap) envelope model, and they can
+mirror to a live CHAP coordinator when you connect one. One doctrine:
 
 > Agents propose deltas; evidence tests them; humans promote them;
 > the runtime only ever executes signed versions.
@@ -226,5 +227,5 @@ local model assist, CHAP mirroring. 31 tests, all green, no network
 required. Contributions welcome, framework adapters especially.
 
 Apache-2.0 · a [Brightbeam](https://github.com/BrightbeamAI) project ·
-built on [CHAP](https://github.com/BrightbeamAI/chap) ·
+[CHAP](https://github.com/BrightbeamAI/chap)-compatible evidence ·
 interoperates with [Metis](https://github.com/BrightbeamAI/metis)
