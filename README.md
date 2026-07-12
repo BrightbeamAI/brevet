@@ -9,9 +9,8 @@
 
 <h1 align="center">Brevet: Change Control for What AI Agents Learn</h1>
 
-<p align="center"><b>Capture the corrections experts make to your agent, govern
-what it learns from them, and ship that learning as signed, revocable
-releases.</b></p>
+<p align="center"><b>Wrap the agent you already have; get evidence, governed
+evolution, signed releases, and recall.</b></p>
 
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
@@ -23,21 +22,22 @@ releases.</b></p>
 
 ---
 
-AI agents now improve themselves inside real workflows: they store memories,
-grow skill libraries, rewrite their own prompts. A quality reviewer corrects
-the same severity call three weeks running, and the agent quietly starts
-making it her way. Nobody wrote that change down, nobody approved it, and if
-it turns out to be wrong, nobody can take it back.
+Agents can now improve themselves: they store memories, grow skill
+libraries, rewrite their own prompts. What no organisation can answer about
+a learning agent is: *what does it know, who approved it, and how do we
+take it back when it is wrong?* Brevet answers all three, and binds to
+whatever you already build on.
 
-Brevet is a local-first Python toolkit that wraps the agent framework you
-already use and turns those corrections into **governed capabilities**: mined
-as candidates, approved by a named human group, locked into signed and
-versioned releases, and revocable with proof. It extends the governance model
-of the paper *Operationalising Tacit Knowledge as a Governed Memory Layer for
-Agentic AI* from memory to everything an agent learns. Every step is recorded
-on Brevet's own hash-linked, replayable evidence chain; the records follow
-the [CHAP](https://github.com/BrightbeamAI/chap) envelope model, and they can
-mirror to a live CHAP coordinator when you connect one. One doctrine:
+Brevet is a local-first Python toolkit. It wraps the agent framework you
+already use, harvests the corrections experts make to the agent's work,
+and turns them into **governed capabilities**: mined as candidates,
+promoted by named humans, locked into signed releases, revocable with
+proof. It extends the governance model of the paper *Operationalising
+Tacit Knowledge as a Governed Memory Layer for Agentic AI* from memory to
+everything an agent learns, and it records every step on a hash-linked,
+replayable evidence chain that follows the
+[CHAP](https://github.com/BrightbeamAI/chap) envelope model and can mirror
+through the official CHAP coordinator. One doctrine:
 
 > Agents propose deltas; evidence tests them; humans promote them;
 > the runtime only ever executes signed versions.
