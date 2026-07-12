@@ -79,8 +79,10 @@ system of record; Brevet records only the binding.
   logged, never authoritative, fails soft to deterministic templates. The
   entire runtime works with no model installed.
 - **CHAP mirroring.** Declare `ledger: chap:<workspace>@<url>` and every
-  envelope mirrors to a live CHAP coordinator through an offline-tolerant
-  outbox. The local hash chain stays the source of truth.
+  envelope mirrors to a running CHAP coordinator (the reference
+  implementation is [`@chap/coordinator`](https://github.com/BrightbeamAI/chap)
+  on npm) using CHAP's own JSON-RPC `task.create` method, through an
+  offline-tolerant outbox. The local hash chain stays the source of truth.
 
 ## Supported frameworks
 

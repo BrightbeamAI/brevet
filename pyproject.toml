@@ -31,7 +31,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-chap = ["chap-coordinator>=0.2.5"]
 metis = ["metis-memory>=0.1.0"]
 mcp = ["mcp>=1.2"]
 dev = ["pytest>=7", "ruff>=0.4", "jsonschema>=4", "mcp>=1.2"]

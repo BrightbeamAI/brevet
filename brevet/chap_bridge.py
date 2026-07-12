@@ -1,10 +1,15 @@
 """Live CHAP dispatch.
 
+Speaks the CHAP Core wire protocol (JSON-RPC 2.0 over HTTP) to a running
+coordinator; the reference implementation is ``@chap/coordinator`` (npm),
+from https://github.com/BrightbeamAI/chap. No Python dependency is needed,
+so this module is stdlib only by design, not by reinvention: the mirrored
+calls are CHAP's own ``task.create`` method, and brevet records land as
+artefacts of kind ``brevet.*`` under the ``brevet/1.0`` profile.
+
 When the manifest declares ``ledger: chap:<workspace_id>`` and a coordinator
 URL is available (env ``BREVET_CHAP_URL`` or ``chap:<workspace>@<url>``),
-every envelope appended to the local chain is mirrored to the coordinator as
-a JSON-RPC call, the same pattern Metis uses: brevet records land as
-artefacts of kind ``brevet.*`` under the ``brevet/1.0`` profile.
+every envelope appended to the local chain is mirrored to the coordinator.
 
 The local hash chain remains the offline-verifiable source of truth. Dispatch
 fails soft: unreachable coordinators queue envelopes to ``chap_outbox.jsonl``
