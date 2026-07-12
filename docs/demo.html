@@ -91,6 +91,15 @@
   header{padding:110px 0 84px;border-bottom:1px solid var(--line);background:
     radial-gradient(900px 380px at 82% -10%, rgba(255,153,0,.12), transparent 60%),
     radial-gradient(760px 340px at 6% 112%, rgba(234,71,0,.08), transparent 60%)}
+  .bb-logo{display:block;height:44px;width:auto;margin-bottom:30px;animation:fadein 1s ease both}
+  .bb-logo.dark-only{display:none}
+  html[data-theme="dark"] .bb-logo.dark-only{display:block}
+  html[data-theme="dark"] .bb-logo.light-only{display:none}
+  footer .bb-logo{height:30px;margin:0}
+  footer .bb-logo.dark-only{display:none}
+  html[data-theme="dark"] footer .bb-logo.dark-only{display:inline-block}
+  html[data-theme="dark"] footer .bb-logo.light-only{display:none}
+  footer .credit{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .wordmark{font:bold 14px/1 var(--mono);letter-spacing:6px;color:var(--amber);border:2px solid var(--amber);border-radius:8px;display:inline-block;padding:9px 16px;margin-bottom:28px;
     animation:spread 1.1s cubic-bezier(.2,.65,.25,1) both}
   header h1{animation:rise .9s cubic-bezier(.2,.65,.25,1) .15s both}
@@ -208,6 +217,10 @@
 <!-- ============================ HERO ============================ -->
 <header>
   <div class="wrap">
+    <a href="https://github.com/BrightbeamAI" aria-label="Brightbeam">
+      <img class="bb-logo light-only" src="assets/brightbeam-logo-light.svg" alt="Brightbeam">
+      <img class="bb-logo dark-only" src="assets/brightbeam-logo-dark.svg" alt="Brightbeam">
+    </a>
     <div class="wordmark">B R E V E T</div>
     <h1>Change control for what<br>AI agents learn.</h1>
     <p class="sub" style="margin-top:20px">
@@ -497,7 +510,13 @@
 
 <footer>
   <div class="wrap">
-    <div>Brevet · Apache-2.0 · built on <a href="https://github.com/BrightbeamAI/chap">CHAP</a> · interoperates with <a href="https://github.com/BrightbeamAI/metis">Metis</a></div>
+    <div class="credit">
+      <a href="https://github.com/BrightbeamAI" aria-label="Brightbeam">
+        <img class="bb-logo light-only" src="assets/brightbeam-logo-light.svg" alt="Brightbeam">
+        <img class="bb-logo dark-only" src="assets/brightbeam-logo-dark.svg" alt="Brightbeam">
+      </a>
+      <span>Brevet · Apache-2.0 · built on <a href="https://github.com/BrightbeamAI/chap">CHAP</a> · interoperates with <a href="https://github.com/BrightbeamAI/metis">Metis</a></span>
+    </div>
     <div><a href="https://github.com/BrightbeamAI/brevet">github.com/BrightbeamAI/brevet</a></div>
   </div>
 </footer>

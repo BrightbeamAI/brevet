@@ -1,3 +1,10 @@
+<a href="https://github.com/BrightbeamAI">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brightbeam-logo-dark.svg">
+    <img src="docs/assets/brightbeam-logo-light.svg" alt="Brightbeam" align="right" width="130">
+  </picture>
+</a>
+
 # Brevet
 
 **Change control for what AI agents learn.**
@@ -197,5 +204,6 @@ v0.1.0: the full loop, ten framework adapters, MCP server, eval runner,
 local model assist, CHAP mirroring. 31 tests, all green, no network
 required. Contributions welcome, framework adapters especially.
 
-Apache-2.0 · built on [CHAP](https://github.com/BrightbeamAI/chap) ·
+Apache-2.0 · a [Brightbeam](https://github.com/BrightbeamAI) project ·
+built on [CHAP](https://github.com/BrightbeamAI/chap) ·
 interoperates with [Metis](https://github.com/BrightbeamAI/metis)
