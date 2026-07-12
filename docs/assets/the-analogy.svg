@@ -8,7 +8,7 @@
   <rect x="0" y="0" width="1200" height="688" rx="18" fill="#1B1C1E" stroke="#3A3C40"/>
 
   <text x="48" y="56" font-size="29" font-weight="bold" fill="#F5F5F5">A new hire&#8217;s learning is governed. An agent&#8217;s is not.</text>
-  <text x="48" y="84" font-size="16" fill="#B3B8BF">Brevet holds the agent to the standard you already set for people.</text>
+  <text x="48" y="84" font-size="17" fill="#B3B8BF">Brevet holds the agent to the standard you already set for people.</text>
 
   <!-- ================= panel A: the new hire ================= -->
   <rect x="48" y="112" width="340" height="444" rx="14" fill="#20272A" stroke="#3FBF71" stroke-width="1.5"/>
@@ -18,30 +18,30 @@
     <path d="M 72 180 a 16 13 0 0 1 32 0"/>
   </g>
   <text x="118" y="150" font-size="18.5" font-weight="bold" fill="#3FBF71">The new hire</text>
-  <text x="118" y="171" font-size="13.5" fill="#9AA0A8">learning fast, under rules you trust</text>
+  <text x="118" y="171" font-size="14" fill="#9AA0A8">learning fast, under rules</text>
 
   <g>
     <rect x="72" y="200" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#2E3A33"/>
     <path d="M 90 232 l 6 7 l 13 -14" stroke="#3FBF71" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="122" y="228" font-size="15.5" font-weight="bold" fill="#F0F2F4">proposes an SOP change</text>
-    <text x="122" y="250" font-size="13.5" fill="#9AA0A8">a change request, written down</text>
+    <text x="122" y="250" font-size="14" fill="#9AA0A8">a change request, written down</text>
 
     <rect x="72" y="278" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#2E3A33"/>
     <path d="M 90 310 l 6 7 l 13 -14" stroke="#3FBF71" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="122" y="306" font-size="15.5" font-weight="bold" fill="#F0F2F4">a supervisor signs it off</text>
-    <text x="122" y="328" font-size="13.5" fill="#9AA0A8">named, accountable approval</text>
+    <text x="122" y="328" font-size="14" fill="#9AA0A8">named, accountable approval</text>
 
     <rect x="72" y="356" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#2E3A33"/>
     <path d="M 90 388 l 6 7 l 13 -14" stroke="#3FBF71" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="122" y="384" font-size="15.5" font-weight="bold" fill="#F0F2F4">the SOP gets a new version</text>
-    <text x="122" y="406" font-size="13.5" fill="#9AA0A8">v12 to v13, history kept</text>
+    <text x="122" y="406" font-size="14" fill="#9AA0A8">v12 to v13, history kept</text>
 
     <rect x="72" y="434" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#2E3A33"/>
     <path d="M 90 466 l 6 7 l 13 -14" stroke="#3FBF71" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="122" y="462" font-size="15.5" font-weight="bold" fill="#F0F2F4">bad changes get rolled back</text>
-    <text x="122" y="484" font-size="13.5" fill="#9AA0A8">reversible by design</text>
+    <text x="122" y="484" font-size="14" fill="#9AA0A8">reversible by design</text>
   </g>
-  <text x="218" y="534" font-size="13.5" fill="#6A7078" text-anchor="middle">this is how trust scales</text>
+  <text x="218" y="534" font-size="14" fill="#6A7078" text-anchor="middle">this is how trust scales</text>
 
   <!-- vs badge -->
   <circle cx="409" cy="334" r="17" fill="#2C2D31" stroke="#3A3C40"/>
@@ -60,30 +60,30 @@
   </g>
   <path d="M 498 134 a 8 8 0 1 0 6 14 a 6.5 6.5 0 0 1 -6 -14 z" fill="#FF6A3D" opacity="0.8"/>
   <text x="518" y="150" font-size="18.5" font-weight="bold" fill="#FF6A3D">The agent, unwrapped</text>
-  <text x="518" y="171" font-size="13.5" fill="#9AA0A8">same behaviour, none of the rules</text>
+  <text x="518" y="171" font-size="14" fill="#9AA0A8">same behaviour, no rules</text>
 
   <g>
     <rect x="454" y="200" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#3E2B26"/>
     <g stroke="#FF6A3D" stroke-width="3.2" stroke-linecap="round"><line x1="474" y1="225" x2="489" y2="240"/><line x1="489" y1="225" x2="474" y2="240"/></g>
     <text x="504" y="228" font-size="15.5" font-weight="bold" fill="#F0F2F4">rewrites its rules nightly</text>
-    <text x="504" y="250" font-size="13.5" fill="#9AA0A8">prompts, memory, skills drift</text>
+    <text x="504" y="250" font-size="14" fill="#9AA0A8">prompts, memory, skills drift</text>
 
     <rect x="454" y="278" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#3E2B26"/>
     <g stroke="#FF6A3D" stroke-width="3.2" stroke-linecap="round"><line x1="474" y1="303" x2="489" y2="318"/><line x1="489" y1="303" x2="474" y2="318"/></g>
     <text x="504" y="306" font-size="15.5" font-weight="bold" fill="#F0F2F4">nobody signs anything</text>
-    <text x="504" y="328" font-size="13.5" fill="#9AA0A8">no named approver anywhere</text>
+    <text x="504" y="328" font-size="14" fill="#9AA0A8">no named approver anywhere</text>
 
     <rect x="454" y="356" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#3E2B26"/>
     <g stroke="#FF6A3D" stroke-width="3.2" stroke-linecap="round"><line x1="474" y1="381" x2="489" y2="396"/><line x1="489" y1="381" x2="474" y2="396"/></g>
     <text x="504" y="384" font-size="15.5" font-weight="bold" fill="#F0F2F4">no versions, no diff</text>
-    <text x="504" y="406" font-size="13.5" fill="#9AA0A8">behaviour just... changes</text>
+    <text x="504" y="406" font-size="14" fill="#9AA0A8">behaviour just... changes</text>
 
     <rect x="454" y="434" width="292" height="70" rx="10" fill="#1B1C1E" stroke="#3E2B26"/>
     <g stroke="#FF6A3D" stroke-width="3.2" stroke-linecap="round"><line x1="474" y1="459" x2="489" y2="474"/><line x1="489" y1="459" x2="474" y2="474"/></g>
     <text x="504" y="462" font-size="15.5" font-weight="bold" fill="#F0F2F4">no way to un-learn</text>
-    <text x="504" y="484" font-size="13.5" fill="#9AA0A8">delete it from where, exactly?</text>
+    <text x="504" y="484" font-size="14" fill="#9AA0A8">delete it from where, exactly?</text>
   </g>
-  <text x="600" y="534" font-size="13.5" fill="#6A7078" text-anchor="middle">you would never accept this from a person</text>
+  <text x="600" y="534" font-size="14" fill="#6A7078" text-anchor="middle">you would never accept this from a person</text>
 
   <!-- wrap arrow -->
   <line x1="774" y1="334" x2="826" y2="334" stroke="#FF9900" stroke-width="2.5" marker-end="url(#aa)"/>
@@ -103,30 +103,30 @@
     <path d="M 866 168 h 16"/>
   </g>
   <text x="908" y="150" font-size="18.5" font-weight="bold" fill="#FF9900">The agent, in Brevet</text>
-  <text x="908" y="171" font-size="13.5" fill="#9AA0A8">the rules, applied automatically</text>
+  <text x="908" y="171" font-size="14" fill="#9AA0A8">the same rules, automatic</text>
 
   <g>
     <rect x="846" y="200" width="282" height="70" rx="10" fill="#1B1C1E" stroke="#3A3327"/>
     <path d="M 864 232 l 6 7 l 13 -14" stroke="#FF9900" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="890" y="228" font-size="15" font-weight="bold" fill="#F0F2F4">learning becomes candidates</text>
-    <text x="890" y="250" font-size="13.5" fill="#9AA0A8">mined from human overrides</text>
+    <text x="890" y="250" font-size="14" fill="#9AA0A8">mined from human overrides</text>
 
     <rect x="846" y="278" width="282" height="70" rx="10" fill="#1B1C1E" stroke="#3A3327"/>
     <path d="M 864 310 l 6 7 l 13 -14" stroke="#FF9900" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="890" y="306" font-size="15" font-weight="bold" fill="#F0F2F4">a human promotes at dawn</text>
-    <text x="890" y="328" font-size="13.5" fill="#9AA0A8">a signed, recorded decision</text>
+    <text x="890" y="328" font-size="14" fill="#9AA0A8">a signed, recorded decision</text>
 
     <rect x="846" y="356" width="282" height="70" rx="10" fill="#1B1C1E" stroke="#3A3327"/>
     <path d="M 864 388 l 6 7 l 13 -14" stroke="#FF9900" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="890" y="384" font-size="15" font-weight="bold" fill="#F0F2F4">versioned, locked releases</text>
-    <text x="890" y="406" font-size="13.5" fill="#9AA0A8">capabilities.lock, ed25519</text>
+    <text x="890" y="406" font-size="14" fill="#9AA0A8">capabilities.lock, ed25519</text>
 
     <rect x="846" y="434" width="282" height="70" rx="10" fill="#1B1C1E" stroke="#3A3327"/>
     <path d="M 864 466 l 6 7 l 13 -14" stroke="#FF9900" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="890" y="462" font-size="15" font-weight="bold" fill="#F0F2F4">recall un-learns, provably</text>
-    <text x="890" y="484" font-size="13.5" fill="#9AA0A8">CVE-style, chain-verified</text>
+    <text x="890" y="484" font-size="14" fill="#9AA0A8">CVE-style, chain-verified</text>
   </g>
-  <text x="991" y="534" font-size="13.5" fill="#6A7078" text-anchor="middle">trust that scales, for agents</text>
+  <text x="991" y="534" font-size="14" fill="#6A7078" text-anchor="middle">trust that scales, for agents</text>
 
   <!-- footer quote -->
   <rect x="48" y="580" width="1104" height="64" rx="12" fill="#242528" stroke="#3A3C40"/>

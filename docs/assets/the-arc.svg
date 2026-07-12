@@ -7,8 +7,8 @@
 
   <rect x="0" y="0" width="1200" height="460" rx="18" fill="#1B1C1E" stroke="#3A3C40"/>
 
-  <text x="48" y="54" font-size="27" font-weight="bold" fill="#F5F5F5">One arc, three pieces</text>
-  <text x="48" y="81" font-size="15.5" fill="#B3B8BF">Brightbeam builds the governance layer for expert agents. Each piece answers one question.</text>
+  <text x="48" y="54" font-size="28" font-weight="bold" fill="#F5F5F5">One arc, three pieces</text>
+  <text x="48" y="81" font-size="16.5" fill="#B3B8BF">Brightbeam builds the governance layer for expert agents. Each piece answers one question.</text>
 
   <!-- the arc itself -->
   <path d="M 100 386 C 340 380, 520 330, 680 268 C 840 206, 960 158, 1088 108"
@@ -20,28 +20,28 @@
   <circle cx="210" cy="378" r="11" fill="#1B1C1E" stroke="#7FA6E8" stroke-width="3"/>
   <line x1="210" y1="367" x2="210" y2="336" stroke="#3A3C40" stroke-width="1.5"/>
   <rect x="100" y="238" width="252" height="98" rx="12" fill="#242528" stroke="#3A3C40"/>
-  <text x="126" y="268" font-size="18" font-weight="bold" fill="#7FA6E8" font-family="Consolas, Menlo, monospace">CHAP</text>
-  <text x="126" y="291" font-size="14.5" fill="#E7E9EC">made the work evidenced</text>
-  <text x="126" y="310" font-size="13" fill="#8A8F98">hash-linked records of tasks,</text>
-  <text x="126" y="326" font-size="13" fill="#8A8F98">artefacts, human decisions</text>
-  <text x="210" y="416" font-size="13" fill="#6A7078" text-anchor="middle" font-style="italic">what happened?</text>
+  <text x="126" y="268" font-size="19" font-weight="bold" fill="#7FA6E8" font-family="Consolas, Menlo, monospace">CHAP</text>
+  <text x="126" y="291" font-size="15.5" fill="#E7E9EC">made the work evidenced</text>
+  <text x="126" y="310" font-size="14" fill="#8A8F98">hash-linked records of tasks</text>
+  <text x="126" y="326" font-size="14" fill="#8A8F98">artefacts, human decisions</text>
+  <text x="210" y="416" font-size="14" fill="#6A7078" text-anchor="middle" font-style="italic">what happened?</text>
 
   <!-- station: Metis -->
   <circle cx="640" cy="284" r="11" fill="#1B1C1E" stroke="#3FBF71" stroke-width="3"/>
   <line x1="640" y1="295" x2="640" y2="340" stroke="#3A3C40" stroke-width="1.5"/>
   <rect x="524" y="344" width="256" height="82" rx="12" fill="#242528" stroke="#3A3C40"/>
-  <text x="550" y="373" font-size="18" font-weight="bold" fill="#3FBF71" font-family="Consolas, Menlo, monospace">Metis</text>
-  <text x="550" y="395" font-size="14.5" fill="#E7E9EC">made the memory governed</text>
-  <text x="550" y="414" font-size="13" fill="#8A8F98">tacit knowledge, authority layers</text>
-  <text x="640" y="262" font-size="13" fill="#6A7078" text-anchor="middle" font-style="italic">what does it know?</text>
+  <text x="550" y="373" font-size="19" font-weight="bold" fill="#3FBF71" font-family="Consolas, Menlo, monospace">Metis</text>
+  <text x="550" y="395" font-size="15.5" fill="#E7E9EC">made the memory governed</text>
+  <text x="550" y="414" font-size="14" fill="#8A8F98">governed tacit fragments</text>
+  <text x="640" y="262" font-size="14" fill="#6A7078" text-anchor="middle" font-style="italic">what does it know?</text>
 
   <!-- station: Brevet -->
   <circle cx="1010" cy="140" r="13" fill="#FF9900" stroke="#FF9900" stroke-width="3"/>
   <line x1="1010" y1="153" x2="1010" y2="196" stroke="#3A3C40" stroke-width="1.5"/>
-  <rect x="872" y="200" width="272" height="98" rx="12" fill="#242528" stroke="#FF9900" stroke-width="1.5"/>
-  <text x="884" y="230" font-size="19" font-weight="bold" fill="#FF9900" font-family="Consolas, Menlo, monospace">Brevet</text>
-  <text x="884" y="253" font-size="14.5" fill="#E7E9EC">makes the learning governed:</text>
-  <text x="884" y="272" font-size="14.5" fill="#E7E9EC">promotable, auditable, revocable</text>
-  <text x="884" y="290" font-size="13" fill="#8A8F98">the governed evolution loop</text>
-  <text x="972" y="124" font-size="13" fill="#6A7078" text-anchor="end" font-style="italic">how does it change?</text>
+  <rect x="860" y="200" width="290" height="98" rx="12" fill="#242528" stroke="#FF9900" stroke-width="1.5"/>
+  <text x="876" y="230" font-size="20" font-weight="bold" fill="#FF9900" font-family="Consolas, Menlo, monospace">Brevet</text>
+  <text x="876" y="253" font-size="15.5" fill="#E7E9EC">makes the learning governed:</text>
+  <text x="876" y="272" font-size="15.5" fill="#E7E9EC">promotable, auditable, revocable</text>
+  <text x="876" y="290" font-size="14" fill="#8A8F98">the governed evolution loop</text>
+  <text x="972" y="124" font-size="14" fill="#6A7078" text-anchor="end" font-style="italic">how does it change?</text>
 </svg>

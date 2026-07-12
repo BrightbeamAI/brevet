@@ -82,6 +82,29 @@ system of record; Brevet records only the binding.
   envelope mirrors to a live CHAP coordinator through an offline-tolerant
   outbox. The local hash chain stays the source of truth.
 
+## Supported frameworks
+
+`brevet.wrap()` detects the framework from the wrapped object's class
+hierarchy. Execution stays in the framework; Brevet owns the envelope.
+
+| Framework | Wrap | Detected via |
+|---|---|---|
+| LangGraph | `brevet.wrap(compiled_graph)` | auto |
+| Claude Agent SDK | `brevet.wrap(sdk_client)` | auto |
+| DeepAgents | `brevet.wrap(deep_agent)` | auto |
+| AutoGen (AgentChat) | `brevet.wrap(agent_or_team)` | auto |
+| LlamaIndex | `brevet.wrap(agent_or_engine)` | auto |
+| Pydantic AI | `brevet.wrap(pydantic_agent)` | auto |
+| Google ADK | `brevet.wrap(runner)` | auto |
+| CrewAI | `brevet.wrap(crew)` | auto |
+| OpenAI Agents SDK | `brevet.wrap(agent)` | auto |
+| Anything callable | `brevet.wrap(fn)` | fallback |
+
+A custom framework binds with one adapter class registered through
+`brevet.register_adapter` (see the README for the snippet). No framework
+is ever a hard dependency: adapters are duck-typed and tested against
+fakes.
+
 ## What Brevet is not
 
 Not an agent framework. Not autonomous self-improvement: nothing in Brevet

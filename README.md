@@ -13,9 +13,49 @@ already build on. One doctrine:
 > Agents propose deltas; evidence tests them; humans promote them;
 > the runtime only ever executes signed versions.
 
+## The governed evolution loop
+
+Brevet runs your agent's learning as a supervised cycle. While the agent
+works, it executes one signed, immutable harness; it cannot change itself
+mid-flight. Improvement happens around it, in six steps, each recorded as
+tamper-evident evidence.
+
+The step names follow the loop's day-and-night rhythm. Awake, the agent
+works and cannot change itself. While it sleeps, Brevet mines what the
+day's corrections imply: the **dream**. At **dawn**, a human reviews what
+the night proposed, and only what they approve ever reaches the agent.
+
 <p align="center">
   <img src="docs/assets/the-loop.svg" alt="The governed evolution loop: work produces overrides, the dream cycle mines candidates, the dawn gate promotes, evals gate the release, releases are signed, recall un-learns" width="960">
 </p>
+
+1. **Work.** Your agent drafts; the human ships their final. Brevet chains
+   every task and draft as evidence.
+2. **Override.** Brevet harvests the draft/final diff as an override,
+   records the rationale, and classifies the change: refining kept the
+   decision, substituting reversed it. Nobody fills in a form.
+3. **Dream.** Offline, Brevet computes the delta, enacted ⊖ specified:
+   a structured comparison of what actually happened against what the
+   harness specified. Divergences that recur become candidate
+   capabilities. Candidates carry zero authority.
+4. **Dawn.** A named human or mission group (the accountable review
+   board for the work: a panel, never a single expert) promotes, holds,
+   or rejects each candidate. Brevet rejects approvers in the `agent:*`,
+   `model:*`, and `dream:*` namespaces: nothing can promote its own
+   learning.
+5. **Evals.** Brevet replays your override history as the regression
+   suite. The conservative gate (`din >= 0 AND dout >= 0 AND max > 0`)
+   blocks any release that trades one split against the other.
+6. **Release.** Brevet locks the approved capabilities into
+   `capabilities.lock` and signs the manifest (Ed25519). The agent wakes
+   as the next version, and the loop begins again.
+
+And when a promoted capability is later proved wrong: **recall**. Revoke it
+by content hash, flag every release that shipped it, roll back, and prove
+all of it from the evidence chain alone.
+
+Every term above (harness, delta, dream, dawn, mission group, authority
+layer, and the rest) is defined precisely in the [GLOSSARY](GLOSSARY.md).
 
 ## Quickstart
 
@@ -37,11 +77,7 @@ agent.record_final(r.task_id, edited_text, participant="human:qa@site",
 
 That is the whole integration. `wrap()` auto-detects the framework,
 generates a signed-manifest scaffold (`agent.yaml`), and starts the evidence
-chain. If the human's final differs from the agent's draft, the difference
-**is** the override: harvested, classified, and chained. Nobody annotates
-anything.
-
-Everything else lives on the same object:
+chain. The rest of the loop lives on the same object:
 
 ```python
 agent.dream()      # offline: mine enacted ⊖ specified into candidates
@@ -71,48 +107,12 @@ $ pip install -e ".[dev]" && brevet demo
 Exact held-in/held-out figures vary per run (the split is hash-assigned);
 the gate passes either way.
 
-## How it works
-
-1. **Work.** Your agent runs a signed, immutable harness. Brevet chains
-   every task and draft as evidence.
-2. **Override.** The human ships their corrected final. Brevet harvests
-   the diff as an override, records the rationale, and classifies the
-   change: refining kept the decision, substituting reversed it.
-3. **Dream.** Offline, Brevet computes the delta, enacted ⊖ specified:
-   a structured comparison of what actually happened against what the
-   harness specified. Divergences that recur become candidate
-   capabilities. Candidates carry zero authority.
-4. **Dawn.** A named human or mission group (the accountable review
-   board for the work: a panel, never a single expert) promotes, holds,
-   or rejects each candidate. Brevet rejects approvers in the `agent:*`, `model:*`,
-   and `dream:*` namespaces: nothing can promote its own learning.
-5. **Evals.** Brevet replays your override history as the regression
-   suite. The conservative gate (`din >= 0 AND dout >= 0 AND max > 0`)
-   blocks any release that trades one split against the other.
-6. **Release.** Brevet locks the approved capabilities into
-   `capabilities.lock` and signs the manifest (Ed25519). Releases move
-   through channels: shadow, trial, production.
-
-And when a capability is proved wrong: **recall**. Revoke by content hash,
-flag every release that shipped it, roll back, prove it from the chain alone.
-
-Every term above (harness, delta, dream, dawn, mission group, authority
-layer, and the rest) is defined precisely in the [GLOSSARY](GLOSSARY.md).
-
 ## Supported frameworks
 
-| Framework | Wrap | Detected via |
-|---|---|---|
-| LangGraph | `brevet.wrap(compiled_graph)` | auto |
-| Claude Agent SDK | `brevet.wrap(sdk_client)` | auto |
-| DeepAgents | `brevet.wrap(deep_agent)` | auto |
-| AutoGen (AgentChat) | `brevet.wrap(agent_or_team)` | auto |
-| LlamaIndex | `brevet.wrap(agent_or_engine)` | auto |
-| Pydantic AI | `brevet.wrap(pydantic_agent)` | auto |
-| Google ADK | `brevet.wrap(runner)` | auto |
-| CrewAI | `brevet.wrap(crew)` | auto |
-| OpenAI Agents SDK | `brevet.wrap(agent)` | auto |
-| Anything callable | `brevet.wrap(fn)` | fallback |
+`brevet.wrap()` auto-detects LangGraph, Claude Agent SDK, DeepAgents,
+AutoGen, LlamaIndex, Pydantic AI, Google ADK, CrewAI, the OpenAI Agents
+SDK, and anything callable. The full detection table is in
+[ABOUT.md](ABOUT.md#supported-frameworks).
 
 Your framework missing? One class:
 
@@ -127,7 +127,7 @@ Brevet never modifies the wrapped object. Execution stays in your framework;
 Brevet owns the envelope: manifest, evidence, promotion, release, recall.
 
 <p align="center">
-  <img src="docs/assets/the-envelope.svg" alt="Brevet wraps your unchanged agent in an envelope of signed manifest, evidence ledger, dawn gate and evals, capabilities.lock and recall" width="880">
+  <img src="docs/assets/the-envelope.svg" alt="Brevet wraps your unchanged agent in an envelope of signed manifest, evidence ledger, dawn gate and evals, capabilities.lock and recall" width="920">
 </p>
 
 ## MCP server
@@ -151,15 +151,18 @@ these tools still cannot promote its own capabilities.
 
 ## The authority model
 
+Every learned thing (prompt rule, loop policy, skill, tool binding, eval
+case, escalation rule, memory binding) is the same capability object with
+one lifecycle and one revocation mechanism. Capabilities climb a ladder,
+and every climb is a recorded human decision:
+
 <p align="center">
   <img src="docs/assets/authority-ladder.svg" alt="Capabilities enter at the Evidence layer with zero authority, are promoted through the dawn gate to Advisory and via mission-group review to Controlled, and recall withdraws them provably" width="960">
 </p>
 
-Every learned thing (prompt rule, loop policy, skill, tool binding, eval
-case, escalation rule, memory binding) is the same capability object with
-one lifecycle and one revocation mechanism. Evidence-layer material can
-never appear in a lockfile; endogenous candidates can never be promoted by
-the process that proposed them; rejection is not deletion.
+Evidence-layer material can never appear in a lockfile; endogenous
+candidates can never be promoted by the process that proposed them;
+rejection is not deletion.
 
 ## CLI
 
