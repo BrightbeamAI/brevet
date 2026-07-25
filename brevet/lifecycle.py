@@ -86,6 +86,14 @@ def dawn_decide(
     cap = caps[capability_id]
 
     if outcome == "promote":
+        # Record the approver in provenance so the lockfile can answer
+        # "who approved this" (R3): mission groups and humans land in
+        # their respective fields, first recorded identity wins.
+        if approver.startswith("mission_group:"):
+            if not cap.provenance.mission_group_reviewed_by:
+                cap.provenance.mission_group_reviewed_by = approver
+        elif not cap.provenance.human_confirmed_by:
+            cap.provenance.human_confirmed_by = approver
         if to_layer == AuthorityLayer.controlled and not cap.provenance.mission_group_reviewed_by:
             cap.provenance.mission_group_reviewed_by = approver
         cap.authority_layer = to_layer
