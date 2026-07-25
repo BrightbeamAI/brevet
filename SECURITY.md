@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities privately to
-**arsalan.shahid@brightbeam.com**. Do not open a public issue for
+**oss@brightbeam.com**. Do not open a public issue for
 security reports. You will receive an acknowledgement within five
 working days.
 
