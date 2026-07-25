@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use Brevet in your work, please cite it as below."
+title: "Brevet: change control for what AI agents learn"
+type: software
+authors:
+  - family-names: Shahid
+    given-names: Arsalan
+    email: arsalan.shahid@brightbeam.com
+    affiliation: Brightbeam AI
+  - family-names: Suttie
+    given-names: Gordon
+    affiliation: Brightbeam AI
+  - family-names: Black
+    given-names: Philip
+    affiliation: Brightbeam AI
+version: 0.1.0
+date-released: 2026-07-12
+license: Apache-2.0
+repository-code: "https://github.com/BrightbeamAI/brevet"
+keywords:
+  - AI agents
+  - change control
+  - governance
+  - evidence chain
+  - capability recall

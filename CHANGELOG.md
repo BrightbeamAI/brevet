@@ -2,17 +2,14 @@
 
 ## Unreleased
 
-- Fixed: dawn-gate promotions now record the approver in capability
-  provenance for every layer, so `capabilities.lock` answers "who
-  approved this" for Advisory promotions too (previously
-  `approved_by: "unrecorded"`). Found by running the loop against a
-  live agent.
+- Fixed: dawn-gate promotions record the approver in capability
+  provenance for every authority layer, so `capabilities.lock` always
+  answers "who approved this" (Advisory promotions previously showed
+  `approved_by: "unrecorded"`).
 
 ## 0.1.0 (2026-07-12)
 
-First public release. (Developed under the working name *Praxis*; renamed to
-*Brevet* before release: the PyPI/import name `praxis` belongs to an
-unrelated JAX library, and several AI projects already share that name.)
+First public release.
 
 - Visual documentation: loop, envelope, authority-ladder, and
   employee-analogy diagrams plus an animated demo GIF (`docs/assets/`), an
