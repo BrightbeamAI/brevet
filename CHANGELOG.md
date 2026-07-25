@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: dawn-gate promotions now record the approver in capability
+  provenance for every layer, so `capabilities.lock` answers "who
+  approved this" for Advisory promotions too (previously
+  `approved_by: "unrecorded"`). Found by running the loop against a
+  live agent.
+
 ## 0.1.0 (2026-07-12)
 
 First public release. (Developed under the working name *Praxis*; renamed to
