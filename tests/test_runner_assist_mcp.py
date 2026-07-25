@@ -133,6 +133,7 @@ def test_chap_embedded_mirrors_through_official_coordinator(tmp_path):
 def test_mcp_server_exposes_lifecycle(tmp_path):
     pytest.importorskip("mcp")
     import asyncio
+
     from brevet.mcp_server import build_server
     server = build_server(str(tmp_path / ".brevet"), str(tmp_path / "agent.yaml"))
     tools = {t.name for t in asyncio.run(server.list_tools())}

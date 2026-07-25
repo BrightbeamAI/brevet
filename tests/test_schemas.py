@@ -42,8 +42,13 @@ def test_lock_release_recall_schemas(tmp_path):
     from brevet.delta import mine
     from brevet.ledger import Ledger
     from brevet.lifecycle import CapabilityStore, dawn_decide, recall, release
-    from brevet.models import (AgentManifest, AuthorityLayer, OverrideRecord,
-                               ReleaseChannel, ReleaseRecord)
+    from brevet.models import (
+        AgentManifest,
+        AuthorityLayer,
+        OverrideRecord,
+        ReleaseChannel,
+        ReleaseRecord,
+    )
 
     store, led = CapabilityStore(tmp_path / "c.jsonl"), Ledger(tmp_path / "l.jsonl")
     cand = mine([OverrideRecord(task_id=f"t{i}", intent_preserved=False, draft="a",
@@ -51,7 +56,7 @@ def test_lock_release_recall_schemas(tmp_path):
     store.add(cand)
     dawn_decide(store, led, cand.capability_id, "promote", approver="mission_group:rft",
                 to_layer=AuthorityLayer.advisory)
-    manifest, lock, record = release(
+    _manifest, lock, record = release(
         AgentManifest(agent="demo_agent",
                       identity_policy={"agent_id": "demo_agent", "owner": "h"},
                       cognitive_core={"model_policy": {"local_default": "ollama:gemma4:12b"}},

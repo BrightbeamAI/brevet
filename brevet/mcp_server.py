@@ -37,7 +37,11 @@ from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
     dawn_decide,
+)
+from brevet.lifecycle import (
     recall as _recall,
+)
+from brevet.lifecycle import (
     release as _release,
 )
 from brevet.models import AgentManifest, AuthorityLayer, ReleaseChannel, ReleaseRecord

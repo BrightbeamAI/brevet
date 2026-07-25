@@ -107,7 +107,7 @@ def test_release_lock_and_recall(tmp_path):
                 channel=ReleaseChannel.trial, approver="mission_group:rft",
                 eval_summary={"delta_held_in": -0.1, "delta_held_out": 0.2})
 
-    manifest, lock, record = release(
+    manifest, lock, _record = release(
         manifest, store, led, signer, to_version="0.2.0",
         channel=ReleaseChannel.trial, approver="mission_group:rft",
         eval_summary={"delta_held_in": 0.1, "delta_held_out": 0.0})

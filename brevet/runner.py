@@ -13,7 +13,8 @@ meaning. Every run is recorded as a ``brevet.eval_run`` envelope.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from brevet.evals import conservative_gate
 from brevet.evidence import _decision_tokens
@@ -29,7 +30,7 @@ def decision_scorer(output: str, expected: str) -> bool:
 
 
 class EvalRunner:
-    def __init__(self, agent: Any, *, scorer: Optional[Scorer] = None):
+    def __init__(self, agent: Any, *, scorer: Scorer | None = None):
         self.agent = agent
         self.scorer = scorer or decision_scorer
 

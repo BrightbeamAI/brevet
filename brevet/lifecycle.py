@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from brevet.canonical import Signer, object_sha256
 from brevet.evals import conservative_gate
@@ -153,7 +152,7 @@ def release(
     to_version: str,
     channel: ReleaseChannel,
     approver: str,
-    eval_summary: Optional[dict] = None,
+    eval_summary: dict | None = None,
     rationale: str = "",
 ) -> tuple[AgentManifest, CapabilitiesLock, ReleaseRecord]:
     """Produce the next signed harness version. Non-shadow channels require a

@@ -6,8 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import brevet
-from brevet.adapters import AdapterError, detect, get_adapter, _text_of
-
+from brevet.adapters import AdapterError, _text_of, detect, get_adapter
 
 # ------------------------------------------------------------------ fakes
 

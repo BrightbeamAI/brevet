@@ -22,9 +22,10 @@ namespace, declared by the ``brevet/1.0`` profile:
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any
 
 from brevet.canonical import chain_hash
 from brevet.models import new_id
@@ -33,7 +34,7 @@ GENESIS = "sha256:" + "0" * 64
 
 
 class Ledger:
-    def __init__(self, path: Path | str, dispatcher: Optional[Any] = None):
+    def __init__(self, path: Path | str, dispatcher: Any | None = None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.dispatcher = dispatcher  # optional live CHAP mirror (fails soft)
@@ -50,7 +51,7 @@ class Ledger:
                     prev = json.loads(line).get("chain_hash", prev)
         return prev
 
-    def append(self, kind: str, body: dict[str, Any], *, refs: Optional[list[str]] = None) -> str:
+    def append(self, kind: str, body: dict[str, Any], *, refs: list[str] | None = None) -> str:
         envelope = {
             "envelope_id": new_id("env"),
             "kind": kind,
@@ -69,7 +70,7 @@ class Ledger:
             self.dispatcher.dispatch(envelope)
         return envelope["envelope_id"]
 
-    def read(self, kind: Optional[str] = None) -> Iterator[dict[str, Any]]:
+    def read(self, kind: str | None = None) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
             return
         with self.path.open() as f:

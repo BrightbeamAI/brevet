@@ -36,7 +36,7 @@ dependencies = [
 chap = ["chap-coordinator @ git+https://github.com/BrightbeamAI/chap.git#subdirectory=packages/coordinator-py"]
 metis = ["metis-memory>=0.1.0"]
 mcp = ["mcp>=1.2"]
-dev = ["pytest>=7", "ruff>=0.4", "jsonschema>=4", "mcp>=1.2",
+dev = ["pytest>=7", "ruff>=0.16,<0.17", "jsonschema>=4", "mcp>=1.2",
        "chap-coordinator @ git+https://github.com/BrightbeamAI/chap.git#subdirectory=packages/coordinator-py"]
 
 [project.scripts]

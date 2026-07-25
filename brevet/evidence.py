@@ -11,7 +11,6 @@ overrides as hard failure labels and refining ones as soft labels.
 from __future__ import annotations
 
 import difflib
-from typing import Optional
 
 from brevet.models import OverrideRecord
 
@@ -36,9 +35,9 @@ def harvest_override(
     final: str,
     participant: str = "human:unknown",
     rationale: str = "",
-    tags: Optional[list[str]] = None,
+    tags: list[str] | None = None,
     task_family: str = "default",
-) -> Optional[OverrideRecord]:
+) -> OverrideRecord | None:
     """Return an OverrideRecord if final differs from draft, else None."""
     if draft.strip() == final.strip():
         return None

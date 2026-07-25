@@ -11,8 +11,8 @@ the demo shows the governance loop, not model quality.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import yaml
 

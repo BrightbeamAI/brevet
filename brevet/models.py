@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -86,38 +86,38 @@ class EvidenceStrength(str, Enum):
 # ------------------------------------------------------ capability object
 
 class Provenance(BaseModel):
-    mined_by: Optional[str] = None
-    originating_participant: Optional[str] = None
+    mined_by: str | None = None
+    originating_participant: str | None = None
     source_traces: list[str] = Field(default_factory=list)
     source_overrides: list[str] = Field(default_factory=list)
     source_artefacts: list[str] = Field(default_factory=list)
     specified_refs: list[str] = Field(default_factory=list)
-    capture_method: Optional[str] = None
-    timestamp: Optional[str] = None
-    human_confirmed_by: Optional[str] = None
-    mission_group_reviewed_by: Optional[str] = None
-    model_provider: Optional[str] = None
-    model_name: Optional[str] = None
-    model_prompt_template: Optional[str] = None
-    model_output_status: Optional[str] = None
+    capture_method: str | None = None
+    timestamp: str | None = None
+    human_confirmed_by: str | None = None
+    mission_group_reviewed_by: str | None = None
+    model_provider: str | None = None
+    model_name: str | None = None
+    model_prompt_template: str | None = None
+    model_output_status: str | None = None
     model_assist_refs: list[str] = Field(default_factory=list)
 
 
 class ApplicabilityContext(BaseModel):
-    task_family: Optional[str] = None
-    domain: Optional[str] = None
-    model_family: Optional[str] = None
+    task_family: str | None = None
+    domain: str | None = None
+    model_family: str | None = None
     tool_scope: list[str] = Field(default_factory=list)
-    role: Optional[str] = None
-    risk_class: Optional[str] = None
-    operating_mode: Optional[str] = None
-    environment: Optional[str] = None
-    trigger_context: Optional[str] = None
+    role: str | None = None
+    risk_class: str | None = None
+    operating_mode: str | None = None
+    environment: str | None = None
+    trigger_context: str | None = None
     exclusion_conditions: list[str] = Field(default_factory=list)
-    valid_from: Optional[str] = None
-    valid_until: Optional[str] = None
+    valid_from: str | None = None
+    valid_until: str | None = None
 
-    def matches(self, runtime: "ApplicabilityContext") -> bool:
+    def matches(self, runtime: ApplicabilityContext) -> bool:
         """Conditions-first matching: every condition set here must be
         satisfied by the runtime context. Unset fields are unconstrained.
         Exclusions veto. This runs BEFORE any similarity ranking."""
@@ -141,7 +141,7 @@ class EvalResult(BaseModel):
     delta_held_out: float
     repeats: int = 1
     passed_gate: bool = False
-    run_ref: Optional[str] = None
+    run_ref: str | None = None
 
 
 class CapabilityEvidence(BaseModel):
@@ -150,9 +150,9 @@ class CapabilityEvidence(BaseModel):
     supporting_overrides: list[str] = Field(default_factory=list)
     counterexamples: list[str] = Field(default_factory=list)
     eval_results: list[EvalResult] = Field(default_factory=list)
-    comparison_baseline: Optional[str] = None
-    uncertainty: Optional[str] = None
-    review_notes: Optional[str] = None
+    comparison_baseline: str | None = None
+    uncertainty: str | None = None
+    review_notes: str | None = None
     evidence_strength: EvidenceStrength = EvidenceStrength.none
 
 
@@ -164,8 +164,8 @@ class CapabilityObject(BaseModel):
     kind: CapabilityKind
     content: str = ""
     content_hash: str = ""
-    payload_schema: Optional[str] = None
-    fragment_ref: Optional[str] = None
+    payload_schema: str | None = None
+    fragment_ref: str | None = None
     source_pathway: SourcePathway = SourcePathway.endogenous
     provenance: Provenance = Field(default_factory=Provenance)
     conditions: ApplicabilityContext = Field(default_factory=ApplicabilityContext)
@@ -174,16 +174,16 @@ class CapabilityObject(BaseModel):
     authority_layer: AuthorityLayer = AuthorityLayer.evidence
     validation_state: ValidationState = ValidationState.captured
     revocation_status: RevocationStatus = RevocationStatus.active
-    consent: Optional[dict[str, Any]] = None
+    consent: dict[str, Any] | None = None
     lineage: list[str] = Field(default_factory=list)
     policy_refs: list[str] = Field(default_factory=list)
     use_constraints: list[str] = Field(default_factory=list)
     created_at: str = Field(default_factory=_now)
     updated_at: str = Field(default_factory=_now)
-    review_due_at: Optional[str] = None
+    review_due_at: str | None = None
     expiry_triggers: list[str] = Field(default_factory=list)
 
-    def seal(self) -> "CapabilityObject":
+    def seal(self) -> CapabilityObject:
         from brevet.canonical import content_sha256
         self.content_hash = content_sha256(self.content)
         return self
@@ -211,15 +211,15 @@ class OverrideRecord(BaseModel):
 
     override_id: str = Field(default_factory=lambda: new_id("ovr"))
     task_id: str
-    trace_ref: Optional[str] = None
+    trace_ref: str | None = None
     participant: str = "human:unknown"
     intent_preserved: bool = True
     diff: list[dict[str, Any]] = Field(default_factory=list)
-    draft: Optional[str] = None
-    final: Optional[str] = None
+    draft: str | None = None
+    final: str | None = None
     rationale: str = ""
     tags: list[str] = Field(default_factory=list)
-    task_family: Optional[str] = None
+    task_family: str | None = None
     created_at: str = Field(default_factory=_now)
 
 
@@ -235,7 +235,7 @@ class AgentManifest(BaseModel):
     bindings: dict[str, Any] = Field(default_factory=dict)
     runtime_safety: dict[str, Any] = Field(default_factory=dict)
     release: dict[str, Any] = Field(default_factory=lambda: {"channel": "shadow"})
-    signature: Optional[dict[str, Any]] = None
+    signature: dict[str, Any] | None = None
 
     def unsigned_payload(self) -> dict[str, Any]:
         d = self.model_dump(exclude_none=False)
@@ -248,10 +248,10 @@ class LockedCapability(BaseModel):
     kind: str
     content_hash: str
     authority_layer: str
-    conditions_digest: Optional[str] = None
+    conditions_digest: str | None = None
     approved_by: str
     approved_at: str
-    promotion_ref: Optional[str] = None
+    promotion_ref: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
     revocation_status: str = "active"
 
@@ -269,7 +269,7 @@ class CapabilitiesLock(BaseModel):
 class ReleaseRecord(BaseModel):
     release_id: str = Field(default_factory=lambda: new_id("rel"))
     agent: str
-    from_version: Optional[str] = None
+    from_version: str | None = None
     to_version: str
     channel: ReleaseChannel = ReleaseChannel.shadow
     promoted_capabilities: list[str] = Field(default_factory=list)
@@ -279,15 +279,15 @@ class ReleaseRecord(BaseModel):
     eval_summary: dict[str, Any] = Field(default_factory=dict)
     approved_by: str = ""
     approved_at: str = Field(default_factory=_now)
-    decision_ref: Optional[str] = None
-    rollback_to: Optional[str] = None
-    rationale: Optional[str] = None
+    decision_ref: str | None = None
+    rollback_to: str | None = None
+    rationale: str | None = None
 
 
 class RecallNotice(BaseModel):
     recall_id: str = Field(default_factory=lambda: new_id("rcl"))
     capability_id: str
-    content_hash: Optional[str] = None
+    content_hash: str | None = None
     reason: str
     reason_class: str = "other"
     severity: str = "medium"
@@ -296,4 +296,4 @@ class RecallNotice(BaseModel):
     action: str = "quarantine"
     affected_releases: list[dict[str, Any]] = Field(default_factory=list)
     control_refs: list[str] = Field(default_factory=list)
-    completed_at: Optional[str] = None
+    completed_at: str | None = None

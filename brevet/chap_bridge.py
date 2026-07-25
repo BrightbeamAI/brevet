@@ -27,7 +27,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from brevet.models import new_id
 
@@ -82,7 +82,7 @@ class EmbeddedCHAPDispatcher:
             from chap_coordinator.storage.sqlite import SqliteStore
             db_path.parent.mkdir(parents=True, exist_ok=True)
             store = SqliteStore(str(db_path))
-        except Exception:
+        except Exception:  # noqa: BLE001 - any store failure must fail soft
             store = None  # in-memory coordinator still mirrors for this run
         self.coordinator = Coordinator(
             CoordinatorOptions(default_profiles=PROFILES, store=store))
@@ -109,7 +109,7 @@ class EmbeddedCHAPDispatcher:
             done = self.coordinator.dispatch(
                 _complete_call(self.workspace, task_id, envelope))
             return "error" not in done
-        except Exception:
+        except Exception:  # noqa: BLE001 - mirroring must never break the chain
             return False  # never let a mirror problem break the local chain
 
 
@@ -123,7 +123,7 @@ class CHAPDispatcher:
         self.outbox.parent.mkdir(parents=True, exist_ok=True)
         self._ready = False
 
-    def _post(self, call: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def _post(self, call: dict[str, Any]) -> dict[str, Any] | None:
         body = json.dumps(call).encode("utf-8")
         req = urllib.request.Request(self.url, data=body,
                                      headers={"Content-Type": "application/json"},
@@ -182,7 +182,7 @@ class CHAPDispatcher:
         return sent, len(remaining)
 
 
-def dispatcher_from_ref(ledger_ref: str, workdir: Path) -> Optional[Any]:
+def dispatcher_from_ref(ledger_ref: str, workdir: Path) -> Any | None:
     """``file:...`` -> None. ``chap:<workspace>@<url>`` (or $BREVET_CHAP_URL)
     -> remote dispatcher. ``chap:<workspace>`` with the official
     ``chap-coordinator`` package installed -> embedded coordinator with a

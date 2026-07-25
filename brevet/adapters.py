@@ -32,7 +32,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 Trace = list[dict[str, Any]]
 
@@ -122,12 +123,12 @@ def detect(target: Any) -> str:
         modules.append(getattr(cls, "__module__", "") or "")
     modules.append(getattr(target, "__module__", "") or "")
     # longest prefix wins (e.g. 'google.adk' beats 'google')
-    best: Optional[tuple[int, str]] = None
+    best: tuple[int, str] | None = None
     for prefix, name in _PREFIXES:
         for mod in modules:
-            if mod == prefix or mod.startswith(prefix + "."):
-                if best is None or len(prefix) > best[0]:
-                    best = (len(prefix), name)
+            if (mod == prefix or mod.startswith(prefix + ".")) and (
+                    best is None or len(prefix) > best[0]):
+                best = (len(prefix), name)
     if best:
         return best[1]
     if callable(target):

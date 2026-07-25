@@ -20,8 +20,8 @@ validation_state=captured, and nothing here can promote anything.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from brevet.models import (
     ApplicabilityContext,

@@ -15,14 +15,14 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from typing import Optional, Protocol
+from typing import Protocol
 
 
 class ModelAssist(Protocol):
     provider: str
     model: str
 
-    def draft(self, prompt: str) -> Optional[str]:
+    def draft(self, prompt: str) -> str | None:
         """Return a draft, or None to fall back to the deterministic template."""
         ...
 
@@ -31,7 +31,7 @@ class NoModelAssist:
     provider = "none"
     model = "none"
 
-    def draft(self, prompt: str) -> Optional[str]:
+    def draft(self, prompt: str) -> str | None:
         return None
 
 
@@ -47,7 +47,7 @@ class OllamaAssist:
         self.host = host.rstrip("/")
         self.timeout = timeout
 
-    def draft(self, prompt: str) -> Optional[str]:
+    def draft(self, prompt: str) -> str | None:
         body = json.dumps({
             "model": self.model,
             "prompt": prompt,
@@ -68,7 +68,7 @@ class OllamaAssist:
 
 
 def log_assist(ledger, assist: ModelAssist, *, purpose: str, prompt: str,
-               output: Optional[str], used: bool) -> Optional[str]:
+               output: str | None, used: bool) -> str | None:
     """Record a model-assist event. No-op for NoModelAssist non-calls."""
     if assist.provider == "none":
         return None
@@ -84,7 +84,7 @@ def log_assist(ledger, assist: ModelAssist, *, purpose: str, prompt: str,
     })
 
 
-def from_name(name: str, model: Optional[str] = None) -> ModelAssist:
+def from_name(name: str, model: str | None = None) -> ModelAssist:
     if name in ("none", "off", ""):
         return NoModelAssist()
     if name == "ollama":

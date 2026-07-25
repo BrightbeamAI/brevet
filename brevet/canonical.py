@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -76,5 +77,5 @@ class Signer:
             pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
             pub.verify(bytes.fromhex(signature_hex), canonical_json(obj).encode("utf-8"))
             return True
-        except Exception:
+        except (InvalidSignature, ValueError, TypeError):
             return False

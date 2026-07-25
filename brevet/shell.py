@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -41,7 +41,11 @@ from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
     dawn_decide,
+)
+from brevet.lifecycle import (
     recall as _recall,
+)
+from brevet.lifecycle import (
     release as _release,
 )
 from brevet.models import (
@@ -95,8 +99,8 @@ class BrevetAgent:
     """A wrapped agent: your framework underneath, governance around it."""
 
     def __init__(self, adapter: BaseAdapter, manifest: AgentManifest, workdir: Path,
-                 manifest_path: Optional[Path] = None,
-                 assist: Optional[ModelAssist] = None):
+                 manifest_path: Path | None = None,
+                 assist: ModelAssist | None = None):
         self.adapter = adapter
         self.manifest = manifest
         self.workdir = Path(workdir)
@@ -116,8 +120,8 @@ class BrevetAgent:
 
     # ------------------------------------------------------------ waking
 
-    def run(self, task: str, *, task_family: Optional[str] = None,
-            context: Optional[dict[str, Any]] = None) -> RunResult:
+    def run(self, task: str, *, task_family: str | None = None,
+            context: dict[str, Any] | None = None) -> RunResult:
         task_id = self.ledger.append("brevet.task", {
             "task": task, "task_family": task_family,
             "agent": self.manifest.agent, "agent_version": self.manifest.version,
@@ -135,7 +139,7 @@ class BrevetAgent:
 
     def record_final(self, task_id: str, final: str, *,
                      participant: str = "human:unknown", rationale: str = "",
-                     tags: Optional[list[str]] = None) -> Optional[OverrideRecord]:
+                     tags: list[str] | None = None) -> OverrideRecord | None:
         override = harvest_override(
             task_id=task_id, draft=self._drafts.get(task_id, ""), final=final,
             participant=participant, rationale=rationale, tags=tags or [],
@@ -172,8 +176,8 @@ class BrevetAgent:
 
     # -------------------------------------------------------------- dawn
 
-    def dawn(self, *, decide: Optional[tuple[str, str]] = None,
-             approver: Optional[str] = None,
+    def dawn(self, *, decide: tuple[str, str] | None = None,
+             approver: str | None = None,
              to_layer: AuthorityLayer | str = AuthorityLayer.advisory,
              notes: str = "") -> list[CapabilityObject] | CapabilityObject:
         """No arguments: the pending queue. With ``decide=(cap_id, outcome)``
@@ -252,12 +256,12 @@ BrevetShell = BrevetAgent
 
 
 def wrap(target: Any, *, manifest: str | Path | AgentManifest | None = None,
-         adapter: Optional[str] = None, workdir: str | Path = ".brevet",
-         assist: Optional[ModelAssist] = None) -> BrevetAgent:
+         adapter: str | None = None, workdir: str | Path = ".brevet",
+         assist: ModelAssist | None = None) -> BrevetAgent:
     """Wrap any agent. Zero config required: if no manifest exists, a
     signature-conformant one is generated and persisted to <workdir>/agent.yaml."""
     workdir = Path(workdir)
-    manifest_path: Optional[Path] = None
+    manifest_path: Path | None = None
 
     if isinstance(manifest, AgentManifest):
         m = manifest

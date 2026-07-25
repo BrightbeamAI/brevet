@@ -22,7 +22,9 @@ from brevet.canonical import Signer
 from brevet.delta import load_overrides, mine
 from brevet.evals import compile_suite
 from brevet.ledger import Ledger
-from brevet.lifecycle import CapabilityStore, dawn_decide, recall as do_recall, release as do_release
+from brevet.lifecycle import CapabilityStore, dawn_decide
+from brevet.lifecycle import recall as do_recall
+from brevet.lifecycle import release as do_release
 from brevet.models import AgentManifest, AuthorityLayer, ReleaseChannel, ReleaseRecord
 
 app = typer.Typer(add_completion=False, help=__doc__)
