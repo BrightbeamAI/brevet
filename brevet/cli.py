@@ -210,6 +210,16 @@ def status(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
 
 
 @app.command()
+def playground(port: int = 8765, workdir: str = "",
+               open_browser: bool = True) -> None:
+    """Run the governed evolution loop step by step in a local web UI,
+    against a real workspace: real envelopes, signatures, and invariants."""
+    from brevet.playground import serve
+    serve(port=port, workdir=Path(workdir) if workdir else None,
+          open_browser=open_browser)
+
+
+@app.command()
 def mcp(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
     """Serve the full Brevet lifecycle to any MCP client (stdio)."""
     try:

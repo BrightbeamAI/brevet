@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added: `brevet playground`, a local web UI that drives the governed
+  evolution loop step by step against a real workspace: live evidence
+  chain, the rejected self-promotion attempt, eval gating, the signed
+  lockfile, and recall. Standard library only; nothing leaves your
+  machine.
 - Fixed: dawn-gate promotions record the approver in capability
   provenance for every authority layer, so `capabilities.lock` always
   answers "who approved this" (Advisory promotions previously showed

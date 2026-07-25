@@ -133,6 +133,12 @@ $ pip install -e ".[dev]" && brevet demo
 Exact held-in/held-out figures vary per run (the split is hash-assigned);
 the gate passes either way.
 
+Prefer to drive it yourself? `brevet playground` opens a local web UI
+that runs the same loop against a real workspace, one stage at a time,
+showing every envelope, the blocked self-promotion attempt, the signed
+lockfile, and the recall. No extra dependencies, nothing leaves your
+machine.
+
 ## Supported frameworks
 
 `brevet.wrap()` auto-detects LangGraph, Claude Agent SDK, DeepAgents,
@@ -196,6 +202,7 @@ rejection is not deletion.
 |---|---|
 | `brevet init` | scaffold `agent.yaml` and the `.brevet/` workdir |
 | `brevet demo` | run the whole loop on synthetic data, offline |
+| `brevet playground` | drive the loop step by step in a local web UI |
 | `brevet dream` | mine the ledger into candidate capabilities |
 | `brevet dawn` | list pending candidates, or apply one decision |
 | `brevet release` | gate-check, sign, and release the next version |
