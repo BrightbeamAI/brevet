@@ -1,0 +1,19 @@
+# Task families under Brevet governance in your Claude sessions.
+#
+# When you ask Claude for work matching one of these families, the
+# brevet-capture skill records the draft/final pair as evidence in this
+# workspace. Work outside these families is not captured unless you say
+# "log this to brevet" explicitly: capture is consent-scoped.
+#
+# Edit freely: one family per genuinely similar kind of recurring work.
+# The family name is the mining and eval-split key, so granularity
+# matters: too broad and unrelated corrections mix; too narrow and
+# recurrence never reaches the proposal threshold (3).
+
+families:
+  weekly_summary:
+    description: Weekly status or team summaries you ship regularly
+  email_draft:
+    description: Correspondence Claude drafts for you to send
+  document_review:
+    description: Review notes and feedback passes on documents

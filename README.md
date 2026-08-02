@@ -181,6 +181,11 @@ Tools: `brevet_status`, `brevet_dream`, `brevet_dawn_pending`,
 Authority invariants hold over MCP exactly as in code: an agent calling
 these tools still cannot promote its own capabilities.
 
+The most direct use of this: govern what your Claude itself learns.
+[examples/claude-cowork](examples/claude-cowork) is a complete two-minute
+setup that records your corrections to Claude's drafts as evidence, puts
+you at the dawn gate, and loads only signed rules into future sessions.
+
 ## The authority model
 
 Every learned thing (prompt rule, loop policy, skill, tool binding, eval
@@ -220,6 +225,7 @@ rejection is not deletion.
 | [SPEC.md](SPEC.md) | the normative rules a conforming implementation must enforce |
 | [BENCHMARK.md](BENCHMARK.md) | the governed-adaptation benchmark design |
 | [docs/demo.html](docs/demo.html) | interactive story tour (open locally or via GitHub Pages) |
+| [examples/claude-cowork](examples/claude-cowork) | case study: govern what Claude Desktop / Cowork itself learns |
 | [schemas/](schemas/) | the five JSON Schemas that are the contract |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | dev setup, ground rules, what lands well |
 | [CHANGELOG.md](CHANGELOG.md) | release history |

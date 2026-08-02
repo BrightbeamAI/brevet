@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added: `examples/claude-cowork`, a complete case study that governs
+  what Claude Desktop / Cowork itself learns: a two-minute setup script,
+  a capture skill with precise override semantics for chat, a bridge CLI
+  (record / dream / dawn / release / recall / apply / check), and a
+  governed rules file that sessions load only after the evidence chain
+  verifies.
 - Fixed: the MCP server now works with both the 1.x and 2.x MCP SDKs
   (SDK 2.0 moved `FastMCP` to `mcp.server.mcpserver.MCPServer`), and
   server startup errors are written to stderr so they can no longer
