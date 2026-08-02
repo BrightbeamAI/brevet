@@ -13,7 +13,9 @@ Authority invariants hold over MCP exactly as in code: promotion tools
 require an approver identity and reject agent/model/dream namespaces, so an
 agent calling these tools still cannot promote its own capabilities.
 
-Requires the optional dependency:  pip install "brevet[mcp]"
+Requires the optional dependency:  pip install "mcp>=1.2"
+(installed automatically by the [mcp] extra when installing from the
+repository).
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ except ImportError:  # pragma: no cover
         from mcp.server.mcpserver import MCPServer as FastMCP
     except ImportError as e:
         raise ImportError(
-            "MCP support requires the 'mcp' package: pip install 'brevet[mcp]'"
+            "MCP support requires the 'mcp' package: pip install 'mcp>=1.2'"
         ) from e
 
 import yaml

@@ -79,7 +79,8 @@ system of record; Brevet records only the binding.
   logged, never authoritative, fails soft to deterministic templates. The
   entire runtime works with no model installed.
 - **CHAP mirroring.** Declare `ledger: chap:<workspace>` and, with the
-  official Python coordinator installed (`pip install "brevet[chap]"`),
+  official Python coordinator installed
+  (`pip install "brevet[chap] @ git+https://github.com/BrightbeamAI/brevet"`),
   every envelope mirrors through a real embedded
   [`chap_coordinator.Coordinator`](https://github.com/BrightbeamAI/chap/tree/main/packages/coordinator-py)
   with a SQLite store in the workdir. Point it at a served coordinator
