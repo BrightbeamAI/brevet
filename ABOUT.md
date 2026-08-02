@@ -144,7 +144,7 @@ brevet/
 │   ├── capabilities_lock.schema.json
 │   ├── release_record.schema.json
 │   └── recall_notice.schema.json
-├── tests/                   33 tests, offline, sub-second
+├── tests/                   the offline test suite, sub-second
 ├── docs/
 │   ├── demo.html            interactive story tour
 │   └── assets/              diagrams + demo GIF
