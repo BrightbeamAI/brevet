@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-08-02)
+
+First public release.
 
 - Added: `examples/claude-cowork`, a complete case study that governs
   what Claude Desktop / Cowork itself learns: a two-minute setup script,
@@ -22,10 +24,6 @@
   provenance for every authority layer, so `capabilities.lock` always
   answers "who approved this" (Advisory promotions previously showed
   `approved_by: "unrecorded"`).
-
-## 0.1.0 (2026-07-12)
-
-First public release.
 
 - Visual documentation: loop, envelope, authority-ladder, and
   employee-analogy diagrams plus an animated demo GIF (`docs/assets/`), an
