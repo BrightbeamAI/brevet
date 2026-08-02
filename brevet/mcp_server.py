@@ -22,11 +22,16 @@ import json
 from pathlib import Path
 
 try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError as e:  # pragma: no cover
-    raise ImportError(
-        "MCP support requires the 'mcp' package: pip install 'brevet[mcp]'"
-    ) from e
+    from mcp.server.fastmcp import FastMCP  # MCP SDK 1.x
+except ImportError:  # pragma: no cover
+    try:
+        # MCP SDK 2.0 renamed FastMCP to MCPServer and moved it; the
+        # surface Brevet uses (tool decorator, stdio run) is unchanged.
+        from mcp.server.mcpserver import MCPServer as FastMCP
+    except ImportError as e:
+        raise ImportError(
+            "MCP support requires the 'mcp' package: pip install 'brevet[mcp]'"
+        ) from e
 
 import yaml
 

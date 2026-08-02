@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed: the MCP server now works with both the 1.x and 2.x MCP SDKs
+  (SDK 2.0 moved `FastMCP` to `mcp.server.mcpserver.MCPServer`), and
+  server startup errors are written to stderr so they can no longer
+  corrupt the JSON-RPC stream read by the connected client.
+
 - Added: `brevet playground`, a local web UI that drives the governed
   evolution loop step by step against a real workspace: live evidence
   chain, the rejected self-promotion attempt, eval gating, the signed

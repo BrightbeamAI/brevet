@@ -225,7 +225,9 @@ def mcp(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
     try:
         from brevet.mcp_server import serve
     except ImportError as e:
-        typer.echo(f"error: {e}")
+        # stderr, never stdout: stdout belongs to the JSON-RPC stream and
+        # any stray text corrupts it for the connected MCP client.
+        typer.echo(f"error: {e}", err=True)
         raise typer.Exit(1)
     serve(workdir, manifest_path)
 
