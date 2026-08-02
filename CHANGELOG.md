@@ -52,7 +52,8 @@ First public release.
   invariants hold over MCP.
 - Optional local model assist via Ollama (drafts only, always logged, fails
   soft to deterministic templates).
-- CHAP mirroring through the official `chap-coordinator` package:
+- CHAP mirroring through the official `chap-coordinator` package (on
+  PyPI):
   embedded in-process with a SQLite store, or to a served coordinator
   over CHAP Core JSON-RPC, with an offline-tolerant outbox.
 - Five JSON Schemas as the normative contract (`schemas/`), a normative

@@ -31,13 +31,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The official CHAP Python coordinator lives in the CHAP monorepo; it is not
-# on PyPI yet, so the extra installs it straight from the repository.
-chap = ["chap-coordinator @ git+https://github.com/BrightbeamAI/chap.git#subdirectory=packages/coordinator-py"]
+# The official CHAP Python coordinator, from PyPI.
+chap = ["chap-coordinator>=0.2.8"]
 metis = ["metis-memory>=0.1.0"]
 mcp = ["mcp>=1.2"]
 dev = ["pytest>=7", "ruff>=0.16,<0.17", "jsonschema>=4", "mcp>=1.2",
-       "chap-coordinator @ git+https://github.com/BrightbeamAI/chap.git#subdirectory=packages/coordinator-py"]
+       "chap-coordinator>=0.2.8"]
 
 [project.scripts]
 brevet = "brevet.cli:main"
