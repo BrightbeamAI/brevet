@@ -141,5 +141,10 @@ def test_mcp_server_exposes_lifecycle(tmp_path):
             "brevet_release", "brevet_recall", "brevet_verify"} <= tools
     # status tool runs against an empty workdir without error
     result = asyncio.run(server.call_tool("brevet_verify", {}))
-    payload = json.loads(result[0][0].text if isinstance(result, tuple) else result[0].text)
+    # unwrap across SDK result shapes: 2.x CallToolResult.content,
+    # 1.x (content, meta) tuples, or a bare content list
+    content = getattr(result, "content", result)
+    if isinstance(content, tuple):
+        content = content[0]
+    payload = json.loads(content[0].text)
     assert payload["chain_ok"] is True
