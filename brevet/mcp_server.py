@@ -40,6 +40,7 @@ import yaml
 from brevet.canonical import Signer
 from brevet.delta import load_overrides, mine
 from brevet.evals import compile_suite
+from brevet.evidence import harvest_override
 from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
@@ -74,6 +75,44 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
 
     def _manifest() -> AgentManifest:
         return AgentManifest(**yaml.safe_load(Path(manifest_path).read_text()))
+
+    @mcp.tool()
+    def brevet_record(task: str, family: str, draft: str, final: str = "",
+                      rationale: str = "", tags: str = "",
+                      participant: str = "") -> str:
+        """Record one completed task as evidence: the agent's draft and the
+        human's shipped final. An empty final means accepted verbatim. The
+        participant defaults to the workspace owner. Recording creates
+        evidence only; it grants no authority."""
+        ledger = _ledger()
+        m = _manifest() if Path(manifest_path).exists() else None
+        who = participant or (
+            (m.identity_policy or {}).get("owner") if m else None) or "human:unknown"
+        task_id = ledger.append("brevet.task", {
+            "task": task, "task_family": family,
+            "agent": m.agent if m else "agent",
+            "agent_version": m.version if m else "0.0.0",
+            "channel": (m.release.get("channel", "shadow") if m else "shadow"),
+        })
+        ledger.append("brevet.artefact", {
+            "task_id": task_id, "output": draft, "trace_len": 0, "trace": [],
+        }, refs=[task_id])
+        ov = harvest_override(
+            task_id=task_id, draft=draft, final=final or draft,
+            participant=who, rationale=rationale,
+            tags=[t.strip() for t in tags.split(",") if t.strip()],
+            task_family=family,
+        )
+        if ov is None:
+            ledger.append("brevet.artefact",
+                          {"task_id": task_id, "accepted_verbatim": True},
+                          refs=[task_id])
+            return json.dumps({"task_id": task_id, "family": family,
+                               "participant": who, "accepted_verbatim": True})
+        ledger.append("brevet.override", ov.model_dump(), refs=[task_id])
+        return json.dumps({"task_id": task_id, "family": family,
+                           "participant": who, "override_harvested": True,
+                           "intent_preserved": ov.intent_preserved})
 
     @mcp.tool()
     def brevet_status() -> str:
