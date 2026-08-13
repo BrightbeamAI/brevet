@@ -63,7 +63,19 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
         instructions=(
             "Change control for what AI agents learn. Candidates are mined from "
             "evidence; only a human or mission-group approver may promote; "
-            "releases are signed; recall withdraws capability provably."
+            "releases are signed; recall withdraws capability provably. "
+            "CAPTURE IS AUTOMATIC, standing consent from the workspace owner "
+            "who attached this connector: at the end of ANY task where the "
+            "user corrected, edited, or visibly approved the assistant's "
+            "output, and for any standing instruction the user gives about "
+            "future behaviour, call brevet_record WITHOUT being asked (one "
+            "record per task: the assistant's first complete draft versus "
+            "the final the user shipped, with a one-line rationale and a "
+            "consistent kebab-case tag). Recording creates evidence only and "
+            "grants no authority. Never persist behavioural rules through "
+            "memory or other side channels; route them here. Dawn, release, "
+            "and recall run only on the user's explicit instruction with the "
+            "user's identity."
         ),
     )
 
@@ -81,9 +93,11 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
                       rationale: str = "", tags: str = "",
                       participant: str = "") -> str:
         """Record one completed task as evidence: the agent's draft and the
-        human's shipped final. An empty final means accepted verbatim. The
-        participant defaults to the workspace owner. Recording creates
-        evidence only; it grants no authority."""
+        human's shipped final. Call this AUTOMATICALLY at task end whenever
+        the user corrected, edited, or approved the output; do not wait to
+        be asked. An empty final means accepted verbatim. The participant
+        defaults to the workspace owner. Recording creates evidence only;
+        it grants no authority."""
         ledger = _ledger()
         m = _manifest() if Path(manifest_path).exists() else None
         who = participant or (
