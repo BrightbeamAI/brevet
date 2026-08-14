@@ -143,3 +143,28 @@ def test_apply_patch_semantics():
     assert "a" not in _apply_patch(doc, [{"op": "remove", "path": "/a"}])
     assert _apply_patch(doc, [{"op": "move", "path": "/a"}]) is None  # unsupported -> verbatim diff only
     assert doc == {"a": {"b": 1}, "xs": [1, 2]}  # input never mutated
+
+
+def test_ingest_skips_corrections_already_captured_in_session(tmp_path):
+    """Both capture paths on one judgment must yield exactly one override.
+
+    Otherwise recurrence inflates and the dream cycle proposes candidates
+    from evidence that never actually recurred.
+    """
+    diff = [{"op": "replace", "path": "/summary", "value": "Formal tone"}]
+    sink = _write_sink(tmp_path, _chain({
+        "method": "decide.override",
+        "params": {"diff": diff, "rationale": "too casual",
+                   "tags": ["tone-formal"], "intent_preserved": True}}))
+    wd = tmp_path / ".brevet"
+
+    # first ingestion stands in for the in-session brevet_record capture
+    first = ingest(str(sink), workdir=wd)
+    assert first["overrides"] == 1
+
+    # the same judgment offered again from a fresh cursor: one override only
+    (wd / "chap_cursor.json").unlink()
+    second = ingest(str(sink), workdir=wd)
+    assert second["overrides"] == 0
+    assert second["duplicates_skipped"] == 1
+    assert len(load_overrides(Ledger(wd / "ledger.jsonl"))) == 1

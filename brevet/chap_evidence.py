@@ -30,7 +30,10 @@ shape ``brevet_record`` writes, so mining and recurrence are unchanged):
     decide.approve   -> brevet.artefact marked accepted_verbatim
 
 Ingestion is idempotent: a cursor file remembers the last seq consumed
-per (source, workspace). Re-running is safe and cheap. Ingestion creates
+per (source, workspace). Re-running is safe and cheap. It is also
+path-idempotent: a correction already captured in-session through
+``brevet_record`` is not recorded again from CHAP, so running both
+capture paths cannot inflate recurrence. Ingestion creates
 evidence only; it grants no authority.
 """
 
@@ -63,8 +66,14 @@ def _iter_jsonl_file(path: Path) -> list[dict[str, Any]]:
 
 
 def _jsonl_sources(path: Path) -> dict[str, list[dict[str, Any]]]:
-    """Map workspace id -> audit entries for a file or directory of files."""
-    files = sorted(path.glob("audit-*.jsonl")) if path.is_dir() else [path]
+    """Map workspace id -> audit entries for a file or directory of files.
+
+    A missing path yields nothing rather than raising: scheduled ingestion
+    runs before the sink exists, and "no evidence yet" is not an error."""
+    if path.is_dir():
+        files = sorted(path.glob("audit-*.jsonl"))
+    else:
+        files = [path] if path.is_file() else []
     out: dict[str, list[dict[str, Any]]] = {}
     for f in files:
         entries = _iter_jsonl_file(f)
@@ -180,16 +189,55 @@ class _TaskContext:
         self.delegator: str = ""
 
 
+def _norm(value: Any) -> str:
+    """Comparable text for a draft or final.
+
+    CHAP carries artefacts as canonical JSON while in-session capture
+    stores plain text, so the same content differs by quoting alone.
+    """
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (ValueError, TypeError):
+            return value.strip()
+        return _norm(decoded) if not isinstance(decoded, str) else decoded.strip()
+    return _canon(value).strip()
+
+
+def _fingerprint(family: str, draft: Any, final: Any) -> str:
+    """Identity of a captured correction, independent of capture path."""
+    return _canon([family or "", _norm(draft), _norm(final)])
+
+
+def _existing_fingerprints(ledger: Ledger) -> set[str]:
+    """Corrections already in the ledger, however they were captured.
+
+    A deployment may run both capture paths (``brevet_record`` in-session
+    and CHAP ingestion). The same human judgment must count once: double
+    counting would inflate recurrence and manufacture candidates from
+    evidence that never recurred.
+    """
+    seen: set[str] = set()
+    for env in ledger.read("brevet.override"):
+        body = env.get("body", {})
+        seen.add(_fingerprint(body.get("task_family", ""),
+                              body.get("draft"), body.get("final")))
+    return seen
+
+
 def _ingest_workspace(
     ledger: Ledger,
     workspace: str,
     entries: list[dict[str, Any]],
     after_seq: int,
     family_map: dict[str, str] | None,
+    seen: set[str] | None = None,
 ) -> dict[str, int]:
     tasks: dict[str, _TaskContext] = {}
     pending: list[_TaskContext] = []
-    counts = {"overrides": 0, "approvals": 0, "rejections": 0}
+    seen = seen if seen is not None else set()
+    counts = {"overrides": 0, "approvals": 0, "rejections": 0,
+              "duplicates_skipped": 0}
 
     for entry in entries:
         env = entry.get("envelope", {})
@@ -261,6 +309,15 @@ def _ingest_workspace(
                     tags=list(params.get("tags") or []) + [INGEST_TAG, "rejected"],
                     task_family=family)
                 counts["rejections"] += 1
+            fp = _fingerprint(family, ov.draft, ov.final)
+            if fp in seen:
+                # already captured in-session via brevet_record: one
+                # judgment, one override, whatever the capture path
+                counts["duplicates_skipped"] += 1
+                counts["overrides" if method == "decide.override"
+                       else "rejections"] -= 1
+                continue
+            seen.add(fp)
             ledger.append("brevet.override", ov.model_dump(), refs=[bt_id])
     return counts
 
@@ -284,6 +341,7 @@ def ingest(
     wd = Path(workdir)
     wd.mkdir(parents=True, exist_ok=True)
     ledger = Ledger(wd / "ledger.jsonl")
+    seen = _existing_fingerprints(ledger)
     cursor_path = wd / "chap_cursor.json"
     cursors: dict[str, int] = (
         json.loads(cursor_path.read_text()) if cursor_path.exists() else {})
@@ -307,15 +365,18 @@ def ingest(
 
     summary: dict[str, Any] = {"source": source, "chain": chain,
                                "workspaces": {}, "overrides": 0,
-                               "approvals": 0, "rejections": 0}
+                               "approvals": 0, "rejections": 0,
+                               "duplicates_skipped": 0}
     for ws, entries in streams.items():
         key = f"{source}::{ws}"
         counts = _ingest_workspace(ledger, ws, entries,
-                                   cursors.get(key, -1), family_map)
+                                   cursors.get(key, -1), family_map,
+                                   seen=seen)
         if entries:
             cursors[key] = max(e.get("seq", -1) for e in entries)
         summary["workspaces"][ws] = counts
-        for k in ("overrides", "approvals", "rejections"):
-            summary[k] += counts[k]
+        for k in ("overrides", "approvals", "rejections",
+                  "duplicates_skipped"):
+            summary[k] += counts.get(k, 0)
     cursor_path.write_text(json.dumps(cursors, indent=2))
     return summary

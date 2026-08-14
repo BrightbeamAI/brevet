@@ -18,6 +18,14 @@
   skill) no longer need parallel `brevet_record` calls for verdicts:
   CHAP is the capture surface, brevet remains the learning gate.
 
+## Unreleased
+
+- Fixed: CHAP ingestion is now path-idempotent. A correction already
+  captured in-session through `brevet_record` is skipped rather than
+  recorded a second time, and the run reports `duplicates_skipped`.
+  Double counting would have inflated recurrence and proposed
+  candidates from evidence that never recurred.
+
 ## 0.1.0 (2026-08-02)
 
 First public release.

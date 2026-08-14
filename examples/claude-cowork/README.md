@@ -33,14 +33,26 @@ this". Sessions call `brevet_verify` and `brevet_active` at the start,
 so the rules you approved are followed from the first answer, with no
 folder mount required.
 
-**Already recording reviews through CHAP?** `brevet_chap_ingest` turns
-CHAP verdicts into the same evidence (overrides carry CHAP's diff,
-rationale, and `intent_preserved` verbatim; rejections are substituting
-judgments; approvals are accepted-verbatim artefacts), so CHAP becomes
-the capture surface and no separate recording calls are needed. Brevet
-remains the learning gate. CHAP is optional throughout: without it,
-`brevet_record` captures and Brevet's own hash-linked ledger is the
-evidence store.
+**Choose one capture path.** A deployment records each human judgment
+once, through whichever surface it already has:
+
+- **Brevet only** (the default): `brevet_record` captures in-session and
+  Brevet's hash-linked ledger is the evidence store. Nothing else is
+  required, and nothing leaves the machine.
+- **CHAP as the capture surface**: if reviews are already recorded
+  through the Collaborative Human-Agent Protocol, `brevet_chap_ingest`
+  turns those verdicts into the same evidence (overrides carry CHAP's
+  diff, rationale, and `intent_preserved` verbatim; rejections are
+  substituting judgments; approvals are accepted-verbatim artefacts).
+  Brevet remains the learning gate.
+
+Running both is safe: ingestion is path-idempotent, so a correction
+already captured in-session is skipped rather than counted twice, and
+the run reports `duplicates_skipped`. This matters because a doubled
+override would inflate recurrence and manufacture candidates from
+evidence that never recurred. Schedule ingestion (daily is ample) if
+CHAP is the capture surface, so the dawn queue reflects the week's
+verdicts without anyone remembering to sync.
 
 **Permission friction.** Governance that interrupts the work gets
 switched off, so make the tools pre-approved: choose "Always allow" the

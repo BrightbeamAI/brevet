@@ -51,7 +51,7 @@ chats are never promoted capabilities.
 - Confirm each capture in ONE short line. Capture must never feel like
   ceremony.
 
-## Already using CHAP?
+## Capture path: exactly one per deployment
 
 If the deployment records review verdicts through the Collaborative
 Human-Agent Protocol, `brevet_chap_ingest` turns those verdicts into
@@ -62,6 +62,12 @@ surface and no separate `brevet_record` calls are needed. Ingestion is
 idempotent and grants no authority. Without CHAP, `brevet_record` is
 the capture path and Brevet's own hash-linked ledger is the evidence
 store: CHAP is never required.
+
+Never record the same judgment through both paths in one session. If
+CHAP capture is active for a task, do not also call `brevet_record` for
+it. Ingestion skips corrections already captured in-session and reports
+`duplicates_skipped`, but the intent is one judgment, one override:
+double counting would inflate recurrence and manufacture candidates.
 
 ## The loop (only on the user's explicit instruction)
 
