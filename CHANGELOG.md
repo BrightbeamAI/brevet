@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added to `examples/claude-cowork`: a CHAP-enabled setup path
+  (`--chap-workspace` creates the audit sink), a weekly dawn digest
+  task template that relays CHAP verdicts into evidence before mining,
+  a tool-permission template so governance never interrupts the work,
+  and `assistant_conduct` / `general` as always-on capture families.
+  Everything learned running this against a live CHAP deployment is now
+  reproducible from a clone.
+
 - Added: **native CHAP evidence source** (`brevet/chap_evidence.py`,
   `brevet chap-ingest`, MCP tool `brevet_chap_ingest`). The inbound
   counterpart to `chap_bridge`: ingests a CHAP audit chain — a JSONL
@@ -17,8 +25,6 @@
   capture reviews through CHAP (e.g. Claude Cowork with a chap-capture
   skill) no longer need parallel `brevet_record` calls for verdicts:
   CHAP is the capture surface, brevet remains the learning gate.
-
-## Unreleased
 
 - Fixed: CHAP ingestion is now path-idempotent. A correction already
   captured in-session through `brevet_record` is skipped rather than
