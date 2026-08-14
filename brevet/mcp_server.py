@@ -54,6 +54,11 @@ from brevet.lifecycle import (
 )
 from brevet.models import AgentManifest, AuthorityLayer, ReleaseChannel, ReleaseRecord
 
+#: Capability kinds that govern live agent behaviour. Eval cases, tool
+#: bindings and memory fragments stay in the workspace; they are never
+#: served to a session as rules to follow.
+GOVERNED_KINDS = {"prompt_rule", "skill", "escalation_rule", "loop_policy"}
+
 
 def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> FastMCP:
     wd = Path(workdir)
@@ -61,6 +66,11 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
     mcp = FastMCP(
         "brevet",
         instructions=(
+            "SESSION START, EVERY SESSION, ANY PROJECT OR NONE: call "
+            "brevet_verify, then brevet_active, and follow the returned "
+            "governed rules from your first answer onward. No folder mount "
+            "is needed; the rules are served from the signed lock. A broken "
+            "chain means follow nothing and alert the user. "
             "Change control for what AI agents learn. Candidates are mined from "
             "evidence; only a human or mission-group approver may promote; "
             "releases are signed; recall withdraws capability provably. "
@@ -129,6 +139,24 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
                            "intent_preserved": ov.intent_preserved})
 
     @mcp.tool()
+    def brevet_chap_ingest(source: str, workspace: str = "",
+                           strict: bool = False) -> str:
+        """Ingest CHAP review verdicts as brevet evidence: overrides (diff +
+        rationale + intent_preserved carried through verbatim), rejections
+        (substituting judgments), and approvals (accepted verbatim). CHAP is
+        the capture surface; brevet remains the learning gate — ingestion
+        creates evidence only and grants no authority. ``source`` is an audit
+        JSONL file/dir (e.g. a synced ~/Dropbox/chap-audit folder), a
+        coordinator SQLite ``.db``, or a served coordinator URL (these two
+        need ``workspace``). Idempotent via a per-source cursor; safe to run
+        daily."""
+        from brevet.chap_evidence import ingest
+
+        summary = ingest(source, workdir=wd, workspace=workspace or None,
+                         strict=strict)
+        return json.dumps(summary)
+
+    @mcp.tool()
     def brevet_status() -> str:
         """Agent status: version, channel, capability counts by authority layer,
         pending dawn queue, evidence-chain integrity."""
@@ -145,6 +173,46 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
             "capabilities_by_layer": by_layer,
             "pending_dawn": len(store.pending()),
             "envelopes": n, "chain_ok": ok,
+        })
+
+    @mcp.tool()
+    def brevet_active() -> str:
+        """Return the active governed rules from the latest signed release,
+        resolved server-side against the capability store: no folder mount
+        or governed file needed. Call at session start, right after
+        brevet_verify, and follow every rule returned. Read-only; recalled
+        or withdrawn capabilities are excluded; eval cases are never
+        served."""
+        candidates = [Path(manifest_path).parent / "capabilities.lock",
+                      wd / "capabilities.lock"]
+        lockpath = next((p for p in candidates if p.exists()), None)
+        if lockpath is None:
+            return json.dumps({"count": 0, "active": [],
+                               "note": "no signed release yet"})
+        lock = json.loads(lockpath.read_text())
+        store = _store().all()
+        rules = []
+        for entry in lock.get("resolved", []):
+            cap = store.get(entry["capability_id"])
+            if cap is None or cap.revocation_status.value != "active":
+                continue  # recalled or withdrawn since the release
+            if entry["kind"] not in GOVERNED_KINDS:
+                continue
+            rules.append({
+                "capability_id": entry["capability_id"],
+                "kind": entry["kind"],
+                "authority_layer": entry["authority_layer"],
+                "approved_by": entry.get("approved_by", "unrecorded"),
+                "content_hash": entry["content_hash"],
+                "title": cap.title,
+                "content": cap.content.strip(),
+            })
+        return json.dumps({
+            "agent": lock.get("agent"),
+            "agent_version": lock.get("agent_version"),
+            "lockfile_hash": lock.get("lockfile_hash"),
+            "count": len(rules),
+            "active": rules,
         })
 
     @mcp.tool()

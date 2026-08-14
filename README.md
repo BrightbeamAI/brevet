@@ -34,7 +34,12 @@ and turns them into **governed capabilities**: mined as candidates,
 promoted by named humans, locked into signed releases, revocable with
 proof. Every step lands on a hash-linked, replayable evidence chain that
 follows the [CHAP](https://github.com/BrightbeamAI/chap) envelope model
-and can mirror through the official CHAP coordinator. One doctrine:
+and composes with the official CHAP coordinator in both directions:
+envelopes mirror *out* to a CHAP workspace (`chap_bridge`), and CHAP
+review verdicts ingest *in* as evidence (`brevet chap-ingest` /
+`brevet_chap_ingest`), so a CHAP-instrumented deployment needs no
+separate capture calls — CHAP is the capture surface, brevet the
+learning gate. One doctrine:
 
 > Agents propose deltas; evidence tests them; humans promote them;
 > the runtime only ever executes signed versions.

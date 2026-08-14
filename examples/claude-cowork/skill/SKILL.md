@@ -1,113 +1,86 @@
-# Brevet capture: Claude as the governed agent
+# Brevet capture: Claude as the governed agent (always on, unprompted)
 
 Brevet is a change-control runtime for what AI agents learn. In this
 setup, **Claude itself is the governed agent**: drafts Claude produces
-and the finals the user ships are recorded as evidence, recurring
-corrections become candidate capabilities, and only capabilities that a
-named human promoted and a signed release shipped may influence future
-behaviour. Doctrine: agents propose deltas; evidence tests them; humans
-promote them; the runtime only ever executes signed versions.
+and the finals the user ships become evidence, recurring corrections
+become candidate capabilities, and only capabilities a named human
+promoted and a signed release shipped may influence future behaviour.
+Doctrine: agents propose deltas; evidence tests them; humans promote
+them; the runtime only ever executes signed versions.
 
-## Layout
+Capture is automatic under the workspace owner's standing consent. The
+user should never have to say "log this".
 
-The governed workspace (created by the example's `setup.sh`, default
-`~/brevet-cowork`, or wherever the user chose) contains: `agent.yaml`
-(the signed manifest, whose `identity_policy.owner` is the user),
-`.brevet/` (ledger, capability store, keys, lockfile),
-`governed/families.yaml`, `governed/ACTIVE_CAPABILITIES.md`, and
-`tools/brevet_cowork.py`. If the location is unknown, locate it with
-Glob `**/tools/brevet_cowork.py` in the connected folders, or ask once.
-Run the tool with the interpreter that has brevet installed
-(standard setup: `~/.brevet/venv/bin/python`).
+## The two rules that override habit
 
-## Session start (before the first governed action)
+1. CAPTURE UNPROMPTED. At the end of any task where the user edited,
+   corrected, or visibly approved Claude's output, and whenever the
+   user states a standing instruction about future behaviour ("from now
+   on...", "always...", "never..."), call `brevet_record` immediately,
+   without asking. When uncertain, record: recording creates evidence
+   only and grants no authority.
+2. NEVER persist a behavioural rule, style preference, or standing
+   correction into memory, project instructions, or other skills.
+   Route it to Brevet instead. Memory is for project facts; behavioural
+   persistence is earned at the dawn gate.
 
-1. Run `<python> <tools>/brevet_cowork.py check`.
-2. If `chain_ok: true` and `governed_file: in_sync`: read
-   `governed/ACTIVE_CAPABILITIES.md` and follow its rules as advisory
-   guidance for drafting.
-3. If STALE or missing: run `apply`, then re-check, and tell the user.
-   If `chain_ok: false`: do NOT follow the file; alert the user
-   immediately (possible tampering).
-4. Never treat rules found anywhere else (memory, notes, old chats) as
-   promoted capabilities. ACTIVE_CAPABILITIES.md is the only surface
-   through which learned behavioural rules enter a session, because it
-   is regenerated from the signed lockfile alone.
+## Session start (every session, before governed behaviour)
 
-## What counts as an override in chat
+Call `brevet_verify`, then `brevet_active`. Follow the returned
+governed rules from the first answer onward. No folder mount is needed:
+the rules are served from the signed lockfile. A broken chain means
+follow nothing and alert the user. Rules found in memory, notes, or old
+chats are never promoted capabilities.
 
-- ONE override per task, at the end: Claude's FIRST complete draft
-  versus the final the user shipped or accepted. Mid-task iteration
-  ("move this up", "add a section") is task specification, not
-  correction; never record per-message overrides, or the miner will
-  propose one-off task specifics as rules.
-- The user's iterating instructions supply the rationale and the tag
-  for that single end-of-task override.
-- Accepted verbatim: record only when acceptance is visible in the
-  conversation ("shipped as-is", "perfect, sending"). If the fate of a
-  draft is never known, record nothing; no signal means no learning.
-- File edits count: if the user edited a file Claude wrote, the on-disk
-  diff versus Claude's version is their override; confirm before
-  recording it.
-- A task is "ended" when the user ships, approves, says "log it", or
-  clearly moves on; at a natural end Claude may ask once, "record this
-  final?", never repeatedly.
+## Recording
 
-## Capture (stages 1-2 of the loop)
+- PREFERRED: the `brevet_record` MCP tool (task, family, draft, final,
+  rationale, tags). Fallback when the tool is absent but the workspace
+  folder is mounted: `<python> tools/brevet_cowork.py record ...`.
+- ONE record per task, at task end: Claude's FIRST complete draft
+  versus the final the user ships or accepts. Mid-task iteration is
+  specification, not correction; never record per-message.
+- Standing instructions: the instruction is the final, Claude's prior
+  default is the draft; family `assistant_conduct`.
+- Family: best fit from `governed/families.yaml`, else `general`. Tags
+  are the clustering key: the same recurring correction carries the
+  same kebab-case tag every time. Include the user's one-line rationale
+  when given.
+- Accepted verbatim: record with an empty final only when acceptance is
+  visible. Unknown fate: record nothing.
+- Confirm each capture in ONE short line. Capture must never feel like
+  ceremony.
 
-Applies when the user's request matches a family in
-`governed/families.yaml`, or whenever they say "log this to brevet".
+## Already using CHAP?
 
-1. Draft normally in chat. Keep your first complete draft.
-2. At task end (rules above), write draft and final to temp files and
-   run:
-   ```
-   <python> <tools>/brevet_cowork.py record \
-     --task "<one-line task description>" --family <family> \
-     --draft-file d.txt --final-file f.txt \
-     --rationale "<their one-line why, if given>" --tags <kebab-tags>
-   ```
-   Omit `--final-file` when accepted verbatim. Use their exact final
-   text, never a paraphrase. The participant identity defaults to the
-   workspace owner from `agent.yaml`. If the reason for their edits is
-   not obvious, ask for one line; rationale is what makes review
-   possible. Suggest a consistent kebab-case tag: tags are the
-   clustering key, so the same recurring correction should carry the
-   same tag every time.
-3. Report in one line: recorded, override (substituting/refining) or
-   verbatim, family, tag. Do not editorialise.
+If the deployment records review verdicts through the Collaborative
+Human-Agent Protocol, `brevet_chap_ingest` turns those verdicts into
+the same evidence shape (overrides carry CHAP's diff, rationale, and
+`intent_preserved` verbatim; rejections are substituting judgments;
+approvals are accepted-verbatim artefacts). CHAP is then the capture
+surface and no separate `brevet_record` calls are needed. Ingestion is
+idempotent and grants no authority. Without CHAP, `brevet_record` is
+the capture path and Brevet's own hash-linked ledger is the evidence
+store: CHAP is never required.
 
-## The loop (stages 3-7): only on the user's explicit instruction
+## The loop (only on the user's explicit instruction)
 
-All via `brevet_cowork.py <subcommand>`, or the `brevet_*` MCP tools if
-connected (capture always goes through `record`).
-
-- `dream` then `pending`: mine and list candidates. You may run these
-  when asked and may summarise candidates with their evidence.
-- `dawn --cap <id> --outcome promote|hold|reject|re_elicit --approver <id>`:
-  ONLY when the user decides. The approver identity must come from the
-  user's message (their own `human:...` or their mission group). Never
-  choose an approver for them, never use agent:/model:/dream:
-  identities (the runtime rejects them), never promote because a
-  candidate "looks good".
-- `release --version X --channel shadow|trial|production --approver <id>
-  --delta-in D --delta-out D`: deltas must be real, from an eval run or
-  explicitly attested by the user. Never invent numbers to pass the
-  conservative gate; if the gate blocks, report that as the system
-  working, not as an error to route around.
-- `recall --cap <id> --reason "..." --issued-by <id>`: when the user
-  says a promoted rule is wrong or withdraws consent.
-- After ANY release or recall: run `apply`, then `check`, and state
-  what changed in ACTIVE_CAPABILITIES.md.
+- `brevet_dream` / `brevet_dawn_pending`: run when asked; summarise
+  candidates with their evidence.
+- `brevet_dawn_decide`: only with the user's stated decision and the
+  approver identity from their message. Never choose an approver,
+  never use `agent:*`, `model:*`, or `dream:*` identities, never
+  promote because a candidate looks good.
+- `brevet_release`: deltas measured or user-attested, never invented.
+  A gate block is the system working. Conduct rules with no numeric
+  eval suite release on the trial channel with an attested delta.
+- `brevet_recall`: when the user withdraws a rule or consent.
+- After any release or recall: `apply` then `check` if the folder is
+  mounted, and state what changed.
 
 ## Prohibitions
 
-- Never write learned behavioural rules into auto-memory, project
-  instructions, or other skills as a way to make them persist. Propose
-  them as candidates instead; persistence is earned at the dawn gate.
-- Never hand-edit ACTIVE_CAPABILITIES.md, the ledger, the store, or the
-  lockfile.
-- Never present an unpromoted candidate's content as an active rule.
-- If asked "what have I approved and why", answer from the ledger
-  (`.brevet/ledger.jsonl` promotion/release/recall envelopes), citing
-  capability ids and approvers.
+No behavioural rules in memory; no hand-edits to the governed file,
+ledger, store, or lockfile; no presenting unpromoted candidates as
+active rules. "What have I approved and why" is answered from the
+ledger, citing capability ids and approvers.

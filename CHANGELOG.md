@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Added: **native CHAP evidence source** (`brevet/chap_evidence.py`,
+  `brevet chap-ingest`, MCP tool `brevet_chap_ingest`). The inbound
+  counterpart to `chap_bridge`: ingests a CHAP audit chain — a JSONL
+  `on_audit` sink (file or synced folder), a coordinator SQLite store,
+  or a served coordinator URL — and turns human verdicts into brevet
+  evidence. `decide.override` carries its diff, rationale, tags and
+  `intent_preserved` through verbatim; `decide.reject` lands as a
+  substituting override; `decide.approve` as accepted-verbatim.
+  Store/URL sources are queried through the official
+  `chap-coordinator` (`audit.read`), with `--strict` running
+  `audit.verify_chain` first; JSONL sources get a structural chain
+  check. Idempotent via a per-source seq cursor. Deployments that
+  capture reviews through CHAP (e.g. Claude Cowork with a chap-capture
+  skill) no longer need parallel `brevet_record` calls for verdicts:
+  CHAP is the capture surface, brevet remains the learning gate.
+
 ## 0.1.0 (2026-08-02)
 
 First public release.

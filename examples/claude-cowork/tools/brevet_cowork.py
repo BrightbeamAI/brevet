@@ -128,7 +128,11 @@ def _governed_text(root: Path) -> tuple[str, int]:
     """Deterministic content of the governed rules file: everything in the
     latest signed lock that is still active (recalls take effect here)."""
     from brevet.lifecycle import CapabilityStore
-    lockpath = root / ".brevet" / "capabilities.lock"
+    # The MCP server writes the lock beside the manifest (playground root);
+    # older layouts kept it in .brevet/. Prefer the root copy, fall back.
+    lockpath = next((p for p in (root / "capabilities.lock",
+                                 root / ".brevet" / "capabilities.lock")
+                     if p.exists()), root / "capabilities.lock")
     head = ["# ACTIVE CAPABILITIES (governed by Brevet)",
             "",
             "Managed by `tools/brevet_cowork.py apply`. Never hand-edit:",

@@ -50,6 +50,27 @@ def version() -> None:
 
 
 @app.command()
+def chap_ingest(
+    source: str = typer.Argument(..., help="audit JSONL file/dir, coordinator .db, or URL"),
+    workdir: str = typer.Option(".brevet"),
+    workspace: str = typer.Option(None, help="required for .db / URL sources"),
+    strict: bool = typer.Option(False, help="refuse to ingest when the chain does not verify"),
+) -> None:
+    """Ingest CHAP review verdicts as brevet evidence (see brevet/chap_evidence.py).
+
+    CHAP is the capture surface; brevet remains the learning gate. Ingested
+    overrides/approvals/rejections feed dream exactly like brevet_record."""
+    from brevet.chap_evidence import ingest
+
+    summary = ingest(source, workdir=_workdir(workdir), workspace=workspace,
+                     strict=strict)
+    typer.echo(
+        f"chap-ingest [{summary['chain']}]: {summary['overrides']} overrides, "
+        f"{summary['approvals']} approvals, {summary['rejections']} rejections "
+        f"from {len(summary['workspaces'])} workspace(s)")
+
+
+@app.command()
 def init(agent: str = "my_agent", directory: str = ".") -> None:
     """Scaffold a signature-conformant agent.yaml and workdir."""
     manifest = AgentManifest(

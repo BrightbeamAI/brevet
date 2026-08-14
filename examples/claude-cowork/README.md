@@ -16,7 +16,7 @@ normal conversation are the only input it needs.
 | Loop stage | In this setup |
 |---|---|
 | Work | Claude drafts in your chats, exactly as before |
-| Override | when you ship your version of a draft, the pair (Claude's first draft, your final, your one-line reason, a tag) is recorded to a local ledger |
+| Override | when you ship your version of a draft, the pair (Claude's first draft, your final, your one-line reason, a tag) is recorded automatically to a local ledger, without you asking |
 | Dream | on your command, recurring corrections (3+ with the same tag and family) become candidate rules with zero authority |
 | Dawn | you promote, hold, or reject each candidate in plain chat; your identity is recorded; machine identities are structurally rejected |
 | Release | approved rules lock into a signed `capabilities.lock` and are materialised into one governed rules file that future sessions load |
@@ -27,6 +27,28 @@ Claude's standing instructions (the capture skill) require it to load
 behavioural rules only from the governed file, only after the chain
 verifies, and never to persist learned rules through memory or other
 side channels. Persistence is earned at the dawn gate or not at all.
+
+Capture is unprompted by design: you should never have to say "log
+this". Sessions call `brevet_verify` and `brevet_active` at the start,
+so the rules you approved are followed from the first answer, with no
+folder mount required.
+
+**Already recording reviews through CHAP?** `brevet_chap_ingest` turns
+CHAP verdicts into the same evidence (overrides carry CHAP's diff,
+rationale, and `intent_preserved` verbatim; rejections are substituting
+judgments; approvals are accepted-verbatim artefacts), so CHAP becomes
+the capture surface and no separate recording calls are needed. Brevet
+remains the learning gate. CHAP is optional throughout: without it,
+`brevet_record` captures and Brevet's own hash-linked ledger is the
+evidence store.
+
+**Permission friction.** Governance that interrupts the work gets
+switched off, so make the tools pre-approved: choose "Always allow" the
+first time a `brevet_*` prompt appears. On Team and Enterprise plans an
+organisation setting (Organization settings, Cowork, Permissions,
+"Allow 'Always allow' for connector tools") may need enabling first,
+and a project-level `.claude/settings.json` listing the `mcp__brevet__*`
+tools under `permissions.allow` covers sessions in that project.
 
 ## An honest limitation
 
@@ -61,7 +83,9 @@ Then:
    agent at version 0.1.0 with a healthy chain.
 
 Edit `~/brevet-cowork/governed/families.yaml` to name the kinds of
-recurring work you want governed. Capture is consent-scoped: Claude
+recurring work you want governed; `assistant_conduct` (standing rules
+about how Claude works) and `general` (everything else) are the
+always-on defaults. Capture is consent-scoped: Claude
 records only in those families, or when you say "log this to brevet".
 
 ## A week in the life

@@ -138,7 +138,8 @@ def test_mcp_server_exposes_lifecycle(tmp_path):
     server = build_server(str(tmp_path / ".brevet"), str(tmp_path / "agent.yaml"))
     tools = {t.name for t in asyncio.run(server.list_tools())}
     assert {"brevet_status", "brevet_dream", "brevet_dawn_pending", "brevet_dawn_decide",
-            "brevet_release", "brevet_recall", "brevet_verify"} <= tools
+            "brevet_release", "brevet_recall", "brevet_verify",
+            "brevet_active"} <= tools
     # status tool runs against an empty workdir without error
     result = asyncio.run(server.call_tool("brevet_verify", {}))
     # unwrap across SDK result shapes: 2.x CallToolResult.content,
@@ -148,3 +149,56 @@ def test_mcp_server_exposes_lifecycle(tmp_path):
         content = content[0]
     payload = json.loads(content[0].text)
     assert payload["chain_ok"] is True
+
+
+def test_mcp_brevet_active_serves_governed_rules(tmp_path):
+    pytest.importorskip("mcp")
+    import asyncio
+
+    import yaml
+
+    from brevet.mcp_server import build_server
+
+    (tmp_path / "agent.yaml").write_text(yaml.safe_dump({
+        "agent": "t_agent", "version": "0.1.0",
+        "identity_policy": {"owner": "human:qa@x"},
+        "release": {"channel": "shadow"},
+    }))
+    server = build_server(str(tmp_path / ".brevet"), str(tmp_path / "agent.yaml"))
+
+    def call(name, args=None):
+        result = asyncio.run(server.call_tool(name, args or {}))
+        content = getattr(result, "content", result)
+        if isinstance(content, tuple):
+            content = content[0]
+        return json.loads(content[0].text)
+
+    # before any release: empty, not an error
+    assert call("brevet_active")["count"] == 0
+
+    # full loop through the server surface: record -> dream -> promote -> release
+    for i in range(3):
+        call("brevet_record", {
+            "task": f"draft item {i}", "family": "assistant_conduct",
+            "draft": "prose with an em dash — here",
+            "final": "prose without an em dash, here",
+            "rationale": "house style", "tags": "no-em-dashes"})
+    assert call("brevet_dream")["candidates"] >= 1
+    pending = call("brevet_dawn_pending")
+    rule_ids = [c["capability_id"] for c in pending if c["kind"] == "prompt_rule"]
+    assert rule_ids
+    for cid in rule_ids:
+        call("brevet_dawn_decide", {"capability_id": cid, "outcome": "promote",
+                                    "approver": "mission_group:rft"})
+    call("brevet_release", {"to_version": "0.2.0",
+                            "approver": "mission_group:rft"})
+
+    active = call("brevet_active")
+    assert active["agent_version"] == "0.2.0"
+    assert active["count"] == len(rule_ids)
+    served = {r["capability_id"] for r in active["active"]}
+    assert served == set(rule_ids)
+    for r in active["active"]:
+        assert r["kind"] == "prompt_rule" and r["content"]
+        assert r["approved_by"] == "mission_group:rft"
+        assert r["authority_layer"] == "advisory"
