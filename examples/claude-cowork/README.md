@@ -50,9 +50,18 @@ Running both is safe: ingestion is path-idempotent, so a correction
 already captured in-session is skipped rather than counted twice, and
 the run reports `duplicates_skipped`. This matters because a doubled
 override would inflate recurrence and manufacture candidates from
-evidence that never recurred. Schedule ingestion (daily is ample) if
-CHAP is the capture surface, so the dawn queue reflects the week's
-verdicts without anyone remembering to sync.
+evidence that never recurred.
+
+**Reaching a coordinator that lives behind MCP.** If your CHAP
+coordinator is a SQLite store or a URL, point `brevet_chap_ingest`
+straight at it. If it is reachable only as MCP tools, there is no path
+to open, so relay it: `chap_audit_read` returns entries in the
+coordinator's own shape, append them verbatim to
+`<workspace>/chap-sink/audit-<workspace_id>.jsonl`, and ingest that
+directory. The scheduled digest in `digest/dawn-digest.md` does exactly
+this, skips cleanly when there are no new verdicts, and never lets a
+relay failure block the digest. Run `setup.sh --chap-workspace <id>` to
+create the sink.
 
 **Permission friction.** Governance that interrupts the work gets
 switched off, so make the tools pre-approved: choose "Always allow" the
@@ -84,7 +93,12 @@ $ bash examples/claude-cowork/setup.sh --owner you@example.com
 ```
 
 Options: `--workspace DIR` (default `~/brevet-cowork`),
-`--mission-group NAME` (default `review_board`), `--claude-config PATH`.
+`--mission-group NAME` (default `review_board`), `--claude-config PATH`,
+and `--chap-workspace wsp_id` to enable the CHAP relay described below.
+
+The script creates the workspace, sets your identity in the signed
+manifest, registers the MCP server, and writes
+`<workspace>/.claude/settings.json` pre-approving the `brevet_*` tools.
 
 Then:
 
@@ -93,6 +107,13 @@ Then:
    say "save this as a skill named brevet-capture".
 3. In a new conversation: "call brevet_status". You should see your
    agent at version 0.1.0 with a healthy chain.
+4. Schedule the weekly digest: paste `digest/dawn-digest.md` into a
+   chat, ask for a Friday 9am scheduled task, and click **Run now**
+   once so its tool approvals are stored on the task.
+
+If you keep your work in a different project folder, copy
+`settings/claude-settings.json` to `<that folder>/.claude/settings.json`
+so sessions there are pre-approved too.
 
 Edit `~/brevet-cowork/governed/families.yaml` to name the kinds of
 recurring work you want governed; `assistant_conduct` (standing rules

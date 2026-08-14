@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__brevet",
+      "mcp__brevet__brevet_record",
+      "mcp__brevet__brevet_active",
+      "mcp__brevet__brevet_status",
+      "mcp__brevet__brevet_verify",
+      "mcp__brevet__brevet_dream",
+      "mcp__brevet__brevet_dawn_pending",
+      "mcp__brevet__brevet_dawn_decide",
+      "mcp__brevet__brevet_release",
+      "mcp__brevet__brevet_recall",
+      "mcp__brevet__brevet_chap_ingest"
+    ]
+  }
+}

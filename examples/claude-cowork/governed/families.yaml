@@ -1,16 +1,20 @@
 # Task families under Brevet governance in your Claude sessions.
 #
-# When you ask Claude for work matching one of these families, the
-# brevet-capture skill records the draft/final pair as evidence in this
-# workspace. Work outside these families is not captured unless you say
-# "log this to brevet" explicitly: capture is consent-scoped.
+# Capture is always on under your standing consent: at the end of any
+# task you correct or approve, Claude records the draft/final pair as
+# evidence here, without being asked. Families are the clustering key
+# for mining, so granularity matters: too broad and unrelated
+# corrections mix; too narrow and recurrence never reaches the
+# proposal threshold (3).
 #
-# Edit freely: one family per genuinely similar kind of recurring work.
-# The family name is the mining and eval-split key, so granularity
-# matters: too broad and unrelated corrections mix; too narrow and
-# recurrence never reaches the proposal threshold (3).
+# `assistant_conduct` and `general` are the always-on defaults and
+# should stay. Add your own families for recurring work.
 
 families:
+  assistant_conduct:
+    description: Standing rules about how Claude works (style, tone, conventions)
+  general:
+    description: Any task where you correct or approve Claude's output
   weekly_summary:
     description: Weekly status or team summaries you ship regularly
   email_draft:

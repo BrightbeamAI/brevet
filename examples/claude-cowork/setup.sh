@@ -12,6 +12,7 @@
 # Usage:
 #   bash setup.sh [--workspace DIR] [--owner you@org.com]
 #                 [--mission-group name] [--claude-config PATH]
+#                 [--chap-workspace wsp_id]
 #
 # Defaults: workspace ~/brevet-cowork; owner from `git config user.email`;
 # mission group "review_board"; Claude config at the macOS location.
@@ -23,6 +24,7 @@ WORKSPACE="$HOME/brevet-cowork"
 OWNER_EMAIL="$(git config user.email 2>/dev/null || true)"
 MISSION="review_board"
 CLAUDE_CFG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+CHAP_WS=""   # set with --chap-workspace to enable the CHAP relay
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,6 +32,7 @@ while [ $# -gt 0 ]; do
     --owner)          OWNER_EMAIL="$2"; shift 2;;
     --mission-group)  MISSION="$2"; shift 2;;
     --claude-config)  CLAUDE_CFG="$2"; shift 2;;
+    --chap-workspace) CHAP_WS="$2"; shift 2;;
     *) echo "unknown option: $1"; exit 1;;
   esac
 done
@@ -75,6 +78,16 @@ cp -R "$SCRIPT_DIR/tools" "$WORKSPACE/" 2>/dev/null || true
 mkdir -p "$WORKSPACE/governed"
 [ -f "$WORKSPACE/governed/families.yaml" ] || \
   cp "$SCRIPT_DIR/governed/families.yaml" "$WORKSPACE/governed/families.yaml"
+# pre-approve the brevet tools for sessions in this folder: governance
+# that interrupts the work gets switched off
+mkdir -p "$WORKSPACE/.claude"
+[ -f "$WORKSPACE/.claude/settings.json" ] || \
+  cp "$SCRIPT_DIR/settings/claude-settings.json" "$WORKSPACE/.claude/settings.json"
+if [ -n "$CHAP_WS" ]; then
+  mkdir -p "$WORKSPACE/chap-sink"
+  [ -f "$WORKSPACE/chap-sink/README.md" ] || \
+    cp "$SCRIPT_DIR/chap-sink-README.md" "$WORKSPACE/chap-sink/README.md"
+fi
 if [ ! -f "$WORKSPACE/agent.yaml" ]; then
   ( cd "$WORKSPACE" && "$BREVET" init )
 else
@@ -121,4 +134,14 @@ echo "  2. Save the capture skill: open skill/SKILL.md from this example in"
 echo "     a Claude chat and say 'save this as a skill named brevet-capture'."
 echo "  3. In a new conversation, try: 'call brevet_status'."
 echo " Your workspace: $WORKSPACE   (ledger, keys, lockfile under .brevet/)"
+echo "   4. Schedule the weekly dawn digest: paste digest/dawn-digest.md"
+echo "      into Claude and ask for a Friday 9am scheduled task, then"
+echo "      click Run now once to pre-approve its tools."
+if [ -n "$CHAP_WS" ]; then
+echo "   CHAP relay enabled for workspace $CHAP_WS: the digest reads the"
+echo "      audit into $WORKSPACE/chap-sink and ingests it as evidence."
+fi
+echo " Tool permissions: $WORKSPACE/.claude/settings.json pre-approves the"
+echo "   brevet tools for sessions in that folder. Copy it into any other"
+echo "   project folder you use, or choose Always allow at the first prompt."
 echo "======================================================================"
