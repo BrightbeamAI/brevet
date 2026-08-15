@@ -181,10 +181,13 @@ $ brevet mcp
 {"mcpServers": {"brevet": {"command": "brevet", "args": ["mcp"]}}}
 ```
 
-Tools: `brevet_status`, `brevet_dream`, `brevet_dawn_pending`,
-`brevet_dawn_decide`, `brevet_release`, `brevet_recall`, `brevet_verify`.
-Authority invariants hold over MCP exactly as in code: an agent calling
-these tools still cannot promote its own capabilities.
+Tools: `brevet_record` and `brevet_chap_ingest` (capture),
+`brevet_active` and `brevet_status` (what the agent may follow now),
+`brevet_dream`, `brevet_dawn_pending`, `brevet_dawn_decide`,
+`brevet_release`, `brevet_recall`, and `brevet_verify`. Authority
+invariants hold over MCP exactly as in code: an agent calling these
+tools still cannot promote its own capabilities, and capture grants
+none.
 
 The most direct use of this: govern what your Claude itself learns.
 [examples/claude-cowork](examples/claude-cowork) is a complete two-minute
