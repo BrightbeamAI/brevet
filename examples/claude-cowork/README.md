@@ -81,11 +81,27 @@ before following any learned rule, and drift is detected rather than
 blocked. Attribution, inventory, gated promotion, and provable recall
 hold fully.
 
+## Before you run it
+
+Three values are yours to choose; nothing else needs editing.
+
+| Value | Flag | Where it ends up |
+|---|---|---|
+| Your email | `--owner you@example.com` | `agent.yaml` as `human:<email>`, the accountable identity on every capture and decision |
+| Your review board's name | `--mission-group review_board` | `agent.yaml` as `mission_group:<name>`, the approver identity you promote with |
+| Your CHAP workspace id | `--chap-workspace wsp_...` | creates the audit sink; omit entirely if you do not use CHAP |
+
+After setup, two placeholders in `digest/dawn-digest.md` take the same
+values when you schedule the weekly task: `<WORKSPACE>` (your workspace
+path) and `<CHAP_WORKSPACE>` (delete that step if you skipped CHAP).
+The skill and every other file work as shipped.
+
 ## Setup (about two minutes)
 
 Requirements: the Claude desktop app, Python 3.10+, macOS (Linux and
 Windows users: pass `--claude-config` with your platform's
-`claude_desktop_config.json` path).
+`claude_desktop_config.json` path). The Python environment install is
+the slow part; everything else is seconds.
 
 ```console
 $ git clone https://github.com/BrightbeamAI/brevet && cd brevet

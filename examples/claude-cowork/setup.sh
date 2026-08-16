@@ -99,11 +99,15 @@ echo "==> [4/5] Setting your identity in the signed manifest"
 import sys, yaml
 p, email, mission = sys.argv[1], sys.argv[2], sys.argv[3]
 m = yaml.safe_load(open(p))
+if m.get("agent") in (None, "my_agent"):
+    m["agent"] = "cowork_assistant"   # readable name in status and lockfiles
 ident = m.setdefault("identity_policy", {})
+if ident.get("agent_id") in (None, "my_agent"):
+    ident["agent_id"] = "cowork_assistant"
 ident["owner"] = f"human:{email}"
 ident["mission_group"] = f"mission_group:{mission}"
 open(p, "w").write(yaml.safe_dump(m, sort_keys=False))
-print(f"    owner: human:{email}   mission group: mission_group:{mission}")
+print(f"    agent: {m['agent']}   owner: human:{email}   mission group: mission_group:{mission}")
 PYEOF
 
 echo "==> [5/5] Registering the Brevet MCP server with Claude"
