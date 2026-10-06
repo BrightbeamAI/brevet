@@ -35,9 +35,7 @@ only the binding.
 2. **No self-authorisation.** Promotion (any transition raising
    `authority_layer`) MUST be attributable to a human or mission-group
    identity. Implementations MUST reject approver identities in the
-   `agent:*`, `model:*`, `dream:*` namespaces. A deployment that claims
-   separation of authority MUST also authenticate the asserted identity and
-   MUST prevent the proposing process from holding approval privileges.
+   `agent:*`, `model:*`, `dream:*` namespaces. A deployment that claims separation of authority MUST also authenticate the asserted identity and MUST prevent the proposing process from holding approval privileges. This repository provides signed approvals for this: once approvers are registered, every decision MUST carry signatures by registered approver keys that meet the decider's threshold, each signed request MUST be applied at most once, and every change to the approver register MUST be signed by an existing approver.
 3. **Endogenous quarantine.** A capability with `source_pathway=endogenous`
    MUST enter at the Evidence layer strictly as a hypothesis and MUST NOT be
    promoted by any automated step of the process that proposed it. (Mirror of
@@ -123,7 +121,7 @@ SHOULD be traced through their provenance and reviewed.
 
 All envelopes (`brevet.task`, `brevet.artefact`, `brevet.override`,
 `brevet.candidate`, `brevet.model_assist`, `brevet.promotion`,
-`brevet.release`, `brevet.recall`, `brevet.eval_run`) are append-only and hash-linked
+`brevet.release`, `brevet.recall`, `brevet.eval_run`, `brevet.approver`) are append-only and hash-linked
 (`sha256(canonical(envelope) || prev_hash)`), independently replayable, and
 CHAP-compatible: when a live CHAP coordinator is configured, envelopes are
 mirrored to it; the local chain remains the offline-verifiable copy. Replay

@@ -31,6 +31,7 @@
     "decision_ref": { "type": ["string", "null"], "description": "CHAP decide.approve envelope id." },
     "rollback_to": { "type": ["string", "null"], "description": "Version restored if this release is rolled back." },
     "rationale": { "type": ["string", "null"] },
-    "signer_public_key": { "type": "string", "description": "Hex Ed25519 public key that signed this release, recorded on the evidence chain." }
+    "signer_public_key": { "type": "string", "description": "Hex Ed25519 public key that signed this release, recorded on the evidence chain." },
+    "approval": { "type": ["object", "null"], "description": "Approver signatures over the exact release, present once the workspace requires signed approvals." }
   }
 }

@@ -79,6 +79,41 @@ every other namespace, including `agent:`, `model:` and `dream:`, is refused.
 Rejection is not deletion: rejected candidates stay on the evidence chain, so
 "was this ever proposed, and why did we say no?" always has an answer.
 
+## Signed approvals
+
+An identity such as `human:alice@example.com` is a name anyone can type,
+including an agent that can call Brevet's tools. Signed approvals make each
+decision provable: once a workspace registers its first approver, every dawn
+decision, release and recall must be signed with a key that an agent does
+not hold.
+
+```console
+brevet approver add --identity human:alice@example.com --group mission_group:quality_team
+brevet dawn --decide cap_123:promote --approver mission_group:quality_team
+brevet approve req_7f3a9c2e41d0     # shows the request, asks for the passphrase, signs
+```
+
+- **Keys stay with people.** `brevet approver add` creates an Ed25519 key,
+  encrypted with a passphrase, in `~/.config/brevet/approvers/` (or
+  `BREVET_APPROVER_DIR`), outside every workspace.
+- **Request, sign, apply.** Anyone may request a decision, an agent over MCP
+  included; nothing changes until the people it needs sign it with
+  `brevet approve`. The signed request is bound to the exact decision: the
+  capability's content hash for a promotion, the lock's digest for a release.
+  A release whose promotions changed after signing is refused, and a signed
+  request can be applied only once.
+- **Mission groups sign through their members.** A decision taken as
+  `mission_group:<name>` needs signatures from that group's members, one by
+  default or more with `brevet approver threshold`.
+- **The register is on the evidence chain.** Each registration, revocation
+  and threshold is a `brevet.approver` envelope. The first approver registers
+  themselves; every later change needs an existing approver's signature, and
+  a new key signs its own registration. `brevet verify` replays the register
+  and checks every signature as it stood at the time.
+
+A signature proves that the holder of a registered key signed. Binding each
+key to a verified person, and keeping it safe, is left to the deployment.
+
 ## The worked example
 
 [examples/pump_vibration.py](examples/pump_vibration.py) runs the README's
@@ -194,7 +229,9 @@ Code or Cursor. Clients may start servers from any directory, so point
 | `brevet_verify` | replays the evidence chain |
 
 Read-only tools carry the MCP read-only hint, and the dawn, release and recall
-tools carry the destructive hint, so clients can ask before running them.
+tools carry the destructive hint, so clients can ask before running them. When
+the workspace requires signed approvals, those three tools return a request
+and the command that signs it, and nothing changes until a person signs.
 Sessions record corrections only when asked, unless the workspace owner turns
 on automatic capture with `BREVET_AUTO_CAPTURE=1` or
 `runtime_safety.evidence.auto_capture: true` in the manifest.
@@ -214,6 +251,8 @@ on automatic capture with `BREVET_AUTO_CAPTURE=1` or
 | `brevet status` | shows the version, capabilities by layer and chain health |
 | `brevet chap-ingest` | imports CHAP review verdicts as overrides |
 | `brevet mcp` | serves the loop to an MCP client |
+| `brevet approver` | registers approvers, revokes them and sets mission-group thresholds |
+| `brevet approve` | lists the requests waiting for signatures, or signs them |
 
 ## Governing what Claude itself learns
 
@@ -265,10 +304,12 @@ Brevet implements the whole loop and keeps every record. Some protections
 are left to the system you deploy it in, and the [paper](README.md#citation)
 sets them out in full:
 
-- **Authenticated approvers.** Brevet records the identity given for every
-  decision and refuses anything other than `human:` and `mission_group:`
-  identities. Proving that the named human really decided needs
-  authenticated identities, which CHAP's participant keys can supply.
+- **Verified approvers.** With signed approvals, each decision is signed by
+  a registered key. Making sure that key belongs to the named person, through
+  identity proofing, custody and recovery, is the deployment's job; CHAP
+  participant keys or an organisation's single sign-on can supply it. Without
+  registered approvers, Brevet records the identity given and refuses
+  anything other than `human:` and `mission_group:`.
 - **Recall that reaches running agents.** A recalled capability, and any
   capability with identical content, is left out of every later release, and
   the releases that shipped it are flagged. Confirming that running agents
@@ -295,6 +336,8 @@ brevet/
 │   ├── runner.py             runs the evals before and after a change
 │   ├── ledger.py             the hash-linked evidence chain
 │   ├── canonical.py          content hashing and Ed25519 signing
+│   ├── identity.py           which identities may decide
+│   ├── approvals.py          approver keys, the register and signed approvals
 │   ├── workdir.py            workspace location, permissions and file locks
 │   ├── models.py             data models matching the schemas
 │   ├── assist.py             optional local model assist
@@ -332,6 +375,7 @@ brevet/
 ├── ledger.jsonl              the evidence chain: one envelope per line
 ├── capabilities.jsonl        the capability store; latest line per id wins
 ├── keys/brevet_ed25519.pem   the signing key, created at the first release
+├── approvals.jsonl           decisions waiting for approver signatures
 ├── chap_cursor.json          how far each CHAP source has been imported
 ├── chap.db                   an embedded CHAP coordinator's store, if used
 ├── chap_outbox.jsonl         envelopes waiting to be mirrored to CHAP
@@ -340,7 +384,8 @@ brevet/
 
 When a manifest path is given, `agent.yaml` and `capabilities.lock` live
 beside it instead. Never commit `.brevet/`: it holds a private key and the
-evidence of real work.
+evidence of real work. Approver keys never live here; each person keeps
+theirs in `~/.config/brevet/approvers/`.
 
 ## Evidence envelopes
 
@@ -359,6 +404,7 @@ lock, so several processes can share one chain.
 | `brevet.eval_run` | the evals run |
 | `brevet.release` | a new version is released |
 | `brevet.recall` | a capability is recalled |
+| `brevet.approver` | an approver is registered or revoked, or a group threshold changes |
 
 ## The benchmark
 
@@ -373,7 +419,7 @@ benchmark exists yet.
 
 - **Authority is granted, never grabbed.** Every increase in a
   capability's authority is a recorded decision by a named human or mission
-  group.
+  group, signed by them once the workspace registers approvers.
 - **The running agent does not change itself.** It runs one released
   version. Learning happens between versions, where it can be reviewed.
 - **Overrides are evidence, not truth.** Experts' corrections are the best

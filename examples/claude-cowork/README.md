@@ -63,6 +63,23 @@ organisation setting (Organization settings, Cowork, Permissions,
 and a project-level `.claude/settings.json` listing the `mcp__brevet__*`
 tools under `permissions.allow` covers sessions in that project.
 
+## Signed approvals (optional)
+
+By default your dawn decisions are recorded under the identity you give, and
+an assistant that can call the Brevet tools could type that identity too. To
+make every decision provably yours, register a key once, in Terminal:
+
+```console
+$ ~/.brevet/venv/bin/brevet approver add --identity human:you@example.com \
+    --group mission_group:review_board --workdir ~/brevet-cowork/.brevet
+```
+
+From then on, "promote it" in chat makes Claude prepare a request and give
+you a `brevet approve` command. Nothing changes until you run it in Terminal
+and enter your passphrase; the key never leaves your Mac and Claude cannot use
+it. One `brevet approve --all` signs everything you agreed to in a dawn
+session.
+
 ## What Brevet can and cannot enforce here
 
 Brevet cannot sit between you and Claude the way it wraps a Python agent,

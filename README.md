@@ -155,10 +155,12 @@ itself learns.
 
 ## Project status
 
-Brevet implements the whole loop and keeps every record. Some protections
-depend on the system you deploy it in, such as authenticated approvers and an
-evidence chain anchored outside the machine. [ABOUT.md](ABOUT.md#project-status)
-lists them, and the [paper](#citation) sets them out in full.
+Brevet implements the whole loop and keeps every record, and a workspace can
+require every decision to be signed by its registered approvers. Some
+protections depend on the system you deploy it in, such as verifying who holds
+each key and anchoring the evidence chain outside the machine.
+[ABOUT.md](ABOUT.md#project-status) lists them, and the [paper](#citation) sets
+them out in full.
 
 ## Learn more
 

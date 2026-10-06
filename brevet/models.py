@@ -283,6 +283,7 @@ class ReleaseRecord(BaseModel):
     rollback_to: str | None = None
     rationale: str | None = None
     signer_public_key: str = ""
+    approval: dict[str, Any] | None = None
 
 
 class RecallNotice(BaseModel):
@@ -298,3 +299,4 @@ class RecallNotice(BaseModel):
     affected_releases: list[dict[str, Any]] = Field(default_factory=list)
     control_refs: list[str] = Field(default_factory=list)
     completed_at: str | None = None
+    approval: dict[str, Any] | None = None

@@ -597,7 +597,7 @@ const steps = [
 
 <span class="cm">// plus 4 eval cases, one per override, also at the Evidence layer</span>`},
  {tag:"DAWN", title:"A human decides at the dawn gate", story:
-  `The mission group reviews the queue and promotes the rule, and the eval cases compiled with it, to <b>Advisory</b>. Only <code class="inline">human:</code> and <code class="inline">mission_group:</code> identities can decide; <code class="inline">agent:</code>, <code class="inline">model:</code>, <code class="inline">dream:</code> and every other namespace are refused. Brevet checks the identity it is given; proving who gave it is left to the system you deploy it in.`,
+  `The mission group reviews the queue and promotes the rule, and the eval cases compiled with it, to <b>Advisory</b>. Only <code class="inline">human:</code> and <code class="inline">mission_group:</code> identities can decide; <code class="inline">agent:</code>, <code class="inline">model:</code>, <code class="inline">dream:</code> and every other namespace are refused. Once a workspace registers approvers, each decision must also be signed with a key an agent does not hold.`,
   analogy:"A brevet commission: rank granted by a superior's warrant, never self-awarded.",
   code:`<span class="kw">&gt;&gt;&gt;</span> agent.dawn(decide=(cap_id, <span class="st">"promote"</span>),
 ...            approver=<span class="st">"dream:nightcycle"</span>)

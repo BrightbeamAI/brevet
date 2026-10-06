@@ -79,6 +79,10 @@ double counting would inflate recurrence and manufacture candidates.
 - `brevet_release`: deltas measured or user-attested, never invented.
   A gate block is the system working. Conduct rules with no numeric
   eval suite release on the trial channel with an attested delta.
+- Signed approvals: if a dawn, release or recall tool returns
+  `awaiting_signature`, nothing has changed. Show the user the summary and
+  the `brevet approve` command to run in Terminal. Never ask for or handle
+  their passphrase, and never say the decision is done until it is signed.
 - `brevet_recall`: when the user withdraws a rule or consent.
 - After any release or recall: `apply` then `check` if the folder is
   mounted, and state what changed.

@@ -20,6 +20,11 @@ an agent from promoting its own candidates also needs authenticated callers.
 Automatic capture is opt-in: set ``BREVET_AUTO_CAPTURE=1`` in the server's
 environment, or ``runtime_safety.evidence.auto_capture: true`` in the
 manifest, to instruct sessions to record corrections without being asked.
+
+Once the workspace registers approvers (``brevet approver add``), the dawn,
+release and recall tools no longer act directly: each returns a request that
+a person signs in a terminal with ``brevet approve``. An agent can ask for a
+decision but cannot take it.
 """
 
 from __future__ import annotations
@@ -27,6 +32,9 @@ from __future__ import annotations
 import functools
 import json
 import os
+import shlex
+import sys
+from pathlib import Path
 from typing import Any
 
 try:  # MCP SDK 1.x
@@ -44,6 +52,14 @@ import yaml
 from mcp.types import ToolAnnotations
 
 from brevet import __version__
+from brevet.approvals import (
+    PendingRequests,
+    register_from_chain,
+    request_promotion,
+    request_recall,
+    request_release,
+    verify_approvals,
+)
 from brevet.canonical import Signer, content_sha256, object_sha256
 from brevet.chap_bridge import dispatcher_from_ref
 from brevet.delta import dream_cycle
@@ -86,8 +102,11 @@ _BASE_INSTRUCTIONS = (
     "assistant only after a human or mission group promotes them "
     "(brevet_dawn_decide) and they ship in a signed release (brevet_release). "
     "Run dawn decisions, releases and recalls only on the user's explicit "
-    "instruction, with the identity the user gives. Keep behavioural rules out "
-    "of memory and other side channels; route them through Brevet."
+    "instruction, with the identity the user gives. When the workspace requires "
+    "signed approvals, those tools return a request instead of acting: show the "
+    "user the summary and the command, which they run in a terminal to sign. "
+    "Keep behavioural rules out of memory and other side channels; route them "
+    "through Brevet."
 )
 
 _AUTO_CAPTURE = (
@@ -105,6 +124,15 @@ _GOVERNING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorld
 
 _EXPECTED_ERRORS = (PermissionError, ValueError, KeyError, LookupError, FileNotFoundError,
                     FileExistsError, RuntimeError, OSError)
+
+
+def _brevet_command() -> str:
+    """How the user can run this same Brevet from a terminal: the script this
+    server was started from, when there is one, else ``brevet``."""
+    script = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    if script is not None and script.name == "brevet" and script.exists():
+        return shlex.quote(str(script.resolve()))
+    return "brevet"
 
 
 def _truthy(value: Any) -> bool:
@@ -176,6 +204,20 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
                 f"no manifest at {mpath}; create one with 'brevet init --directory "
                 f"{mpath.parent}' and set identity_policy.owner")
         return m
+
+    def _signing_required() -> bool:
+        return register_from_chain(_ledger()).enabled
+
+    def _awaiting(req: dict[str, Any]) -> str:
+        return json.dumps({
+            "status": "awaiting_signature",
+            "request_id": req["request_id"],
+            "summary": req["summary"],
+            "next": "Nothing has changed yet. Ask the user to review the request and sign "
+                    "it in a terminal; it is applied once its signatures suffice.",
+            "command": f"{_brevet_command()} approve {req['request_id']} "
+                       f"--workdir {shlex.quote(str(wd))}",
+        })
 
     @mcp.tool(annotations=_ADDITIVE)
     @_tool
@@ -253,6 +295,7 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
                 recalled += 1
         ok, n = ledger.verify()
         m = _manifest()
+        register = register_from_chain(ledger)
         return json.dumps({
             "agent": m.agent if m else None,
             "version": m.version if m else None,
@@ -260,6 +303,11 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
             "capabilities_by_layer": by_layer,
             "recalled": recalled,
             "pending_dawn": len(store.pending()),
+            "signed_approvals": {
+                "required": register.enabled,
+                "approvers": len(register.active()),
+                "awaiting_signatures": len(PendingRequests(wd).pending()),
+            },
             "envelopes": n, "chain_ok": ok,
         })
 
@@ -280,6 +328,13 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
                 "count": 0, "active": [], "chain_ok": False,
                 "error": f"the evidence chain is broken at envelope {n + 1}; follow "
                          f"no governed rules and tell the user to run brevet verify"})
+        approvals = verify_approvals(ledger)
+        if approvals["invalid"]:
+            return json.dumps({
+                "count": 0, "active": [], "chain_ok": True,
+                "error": f"{len(approvals['invalid'])} decision(s) on the evidence chain carry "
+                         f"invalid approval signatures; follow no governed rules and tell "
+                         f"the user to run brevet verify"})
         lockpath = next((p for p in (mpath.parent / "capabilities.lock",
                                      wd / "capabilities.lock") if p.exists()), None)
         if lockpath is None:
@@ -340,6 +395,8 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
             "lockfile_hash": lock.lockfile_hash,
             "chain_ok": True,
             "signature": signature,
+            "signed_approvals": ("required and verified" if approvals["signing_required"]
+                                 else "not required in this workspace"),
             "count": len(rules),
             "active": rules,
         }
@@ -376,7 +433,12 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
         """Apply one dawn-gate decision: promote, hold, reject or re_elicit.
         The approver must be human:<who> or mission_group:<name>; promotion
         to the controlled layer needs a mission group. Run only on the user's
-        explicit instruction, with the identity the user gives."""
+        explicit instruction, with the identity the user gives. When the workspace
+        requires signed approvals, this returns a request for the user to sign."""
+        if _signing_required():
+            return _awaiting(request_promotion(wd, _store(), capability_id, outcome,
+                                               approver=approver, to_layer=to_layer,
+                                               notes=notes))
         cap = dawn_decide(_store(), _ledger(), capability_id, outcome,
                           approver=approver, to_layer=AuthorityLayer(to_layer), notes=notes)
         return json.dumps({"capability_id": cap.capability_id,
@@ -392,7 +454,16 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
         manifest (Ed25519, covering the lock's digest) and record the release.
         Trial and production releases need the conservative gate to pass on
         the deltas supplied here (measured, or attested by the user). Run only
-        on the user's explicit instruction, with the identity the user gives."""
+        on the user's explicit instruction, with the identity the user gives. When
+        the workspace requires signed approvals, this returns a request for the user
+        to sign."""
+        if _signing_required():
+            return _awaiting(request_release(
+                wd, _required_manifest(), _store(), to_version=to_version, channel=channel,
+                approver=approver,
+                eval_summary={"delta_held_in": delta_held_in, "delta_held_out": delta_held_out,
+                              "gate": "conservative"},
+                rationale=rationale, manifest_path=mpath))
         manifest, lock, record = _release(
             _required_manifest(), _store(), _ledger(),
             Signer(wd / "keys" / "brevet_ed25519.pem"),
@@ -418,7 +489,13 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
         reason_class is one of incorrect, unsafe, consent_withdrawn,
         superseded, stale, compliance or other; severity is low, medium, high
         or critical; action is quarantine, rollback or re_review. Run only on
-        the user's explicit instruction, with the identity the user gives."""
+        the user's explicit instruction, with the identity the user gives. When the
+        workspace requires signed approvals, this returns a request for the user to
+        sign."""
+        if _signing_required():
+            return _awaiting(request_recall(
+                wd, _store(), capability_id, reason=reason, issued_by=issued_by,
+                reason_class=reason_class, severity=severity, action=action))
         ledger = _ledger()
         releases = [ReleaseRecord(**e["body"]) for e in ledger.read("brevet.release")]
         notice = _recall(_store(), ledger, capability_id, reason=reason,
@@ -431,10 +508,17 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
     @_tool
     def brevet_verify() -> str:
         """Replay the hash-linked evidence chain and report whether it is
-        intact. Replay detects edits that break the chain; detecting a
-        wholesale rewrite needs the latest hash held somewhere else."""
-        ok, n = _ledger().verify()
-        return json.dumps({"chain_ok": ok, "envelopes": n})
+        intact, and check every approval signature on it. Replay detects
+        edits that break the chain; detecting a wholesale rewrite needs the
+        latest hash held somewhere else."""
+        ledger = _ledger()
+        ok, n = ledger.verify()
+        approvals = verify_approvals(ledger)
+        return json.dumps({"chain_ok": ok, "envelopes": n, "approvals": {
+            "signing_required": approvals["signing_required"],
+            "signed": approvals["signed"],
+            "unsigned_before_signing": approvals["unsigned_before_signing"],
+            "invalid": approvals["invalid"]}})
 
     return mcp
 

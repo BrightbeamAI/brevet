@@ -186,16 +186,20 @@ class BrevetAgent:
     def dawn(self, *, decide: tuple[str, str] | None = None,
              approver: str | None = None,
              to_layer: AuthorityLayer | str = AuthorityLayer.advisory,
-             notes: str = "") -> list[CapabilityObject] | CapabilityObject:
+             notes: str = "",
+             approval: dict[str, Any] | None = None) -> list[CapabilityObject] | CapabilityObject:
         """No arguments: the pending queue. With ``decide=(cap_id, outcome)``
-        and ``approver=``: apply one human decision."""
+        and ``approver=``: apply one human decision. Once the workspace has
+        registered approvers, ``approval`` must carry their signatures (see
+        ``brevet.approvals``)."""
         if decide is None:
             return self.store.pending()
         if approver is None:
             raise PermissionError("dawn decisions require approver=<human|mission_group id>")
         cap_id, outcome = decide
         return dawn_decide(self.store, self.ledger, cap_id, outcome,
-                           approver=approver, to_layer=AuthorityLayer(to_layer), notes=notes)
+                           approver=approver, to_layer=AuthorityLayer(to_layer), notes=notes,
+                           approval=approval)
 
     # ----------------------------------------------------------- release
 
@@ -206,13 +210,14 @@ class BrevetAgent:
 
     def release(self, *, to_version: str, channel: str = "shadow",
                 approver: str, delta_in: float = 0.0, delta_out: float = 0.0,
-                rationale: str = "") -> ReleaseRecord:
+                rationale: str = "",
+                approval: dict[str, Any] | None = None) -> ReleaseRecord:
         self.manifest, lock, record = _release(
             self.manifest, self.store, self.ledger, self.signer,
             to_version=to_version, channel=ReleaseChannel(channel), approver=approver,
             eval_summary={"delta_held_in": delta_in, "delta_held_out": delta_out,
                           "gate": "conservative"},
-            rationale=rationale,
+            rationale=rationale, approval=approval,
         )
         if self.manifest_path:
             self.manifest_path.write_text(yaml.safe_dump(
@@ -224,11 +229,13 @@ class BrevetAgent:
 
     def recall(self, capability_id: str, *, reason: str, issued_by: str,
                reason_class: str = "incorrect", severity: str = "high",
-               action: str = "rollback") -> RecallNotice:
+               action: str = "rollback",
+               approval: dict[str, Any] | None = None) -> RecallNotice:
         releases = [ReleaseRecord(**e["body"]) for e in self.ledger.read("brevet.release")]
         return _recall(self.store, self.ledger, capability_id, reason=reason,
                        reason_class=reason_class, severity=severity,
-                       issued_by=issued_by, releases=releases, action=action)
+                       issued_by=issued_by, releases=releases, action=action,
+                       approval=approval)
 
     # ------------------------------------------------------------- audit
 

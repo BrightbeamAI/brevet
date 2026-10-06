@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Signed approvals. Once a workspace registers its first approver with
+  `brevet approver add`, every dawn decision, release and recall must be
+  signed with a passphrase-protected Ed25519 key kept outside the workspace.
+  Anyone, an agent over MCP included, may request a decision; `brevet approve`
+  signs it, and it is applied once the named human, or the threshold of a
+  mission group's members, has signed. A signed request is bound to the exact
+  decision and can be applied only once.
+- The approver register is kept on the evidence chain (`brevet.approver`
+  envelopes): the first approver registers themselves, later changes need an
+  existing approver's signature, and new keys sign their own registration.
+- `brevet verify`, `brevet_verify` and `brevet_active` check every approval
+  signature against the register as it stood at the time; `brevet_active`
+  serves nothing if any is invalid.
+- When signing is required, the MCP dawn, release and recall tools return a
+  request with the command that signs it instead of acting.
+
 ## 0.2.0 (2026-10-06)
 
 First release on PyPI and the MCP Registry.

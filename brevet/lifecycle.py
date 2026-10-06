@@ -14,17 +14,26 @@ names the identity that took it, and only ``human:<who>`` and
 ``mission_group:<name>`` identities are accepted: ``agent:``, ``model:``,
 ``dream:`` and every other namespace are refused, so a candidate cannot be
 promoted under a machine identity (the same rule Metis applies to tacit
-fragments). Promotion to Controlled needs a mission group. The check is on
-the identity supplied; proving who supplied it is the deployment's job."""
+fragments). Promotion to Controlled needs a mission group. Once a workspace
+registers approvers, every decision must also carry their signatures (see
+``brevet.approvals``); before that, the identity supplied is recorded as
+given.
+
+Each decision has a ``prepare_*`` step, which validates it and returns the
+exact payload an approver signs, and an apply step, which checks the
+approval and records the decision."""
 
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
+from typing import Any
 
+from brevet.approvals import enforce, promotion_payload, recall_payload, release_payload
 from brevet.canonical import Signer, content_sha256, object_sha256
 from brevet.evals import conservative_gate
+from brevet.identity import require_identity
 from brevet.models import (
     AgentManifest,
     AuthorityLayer,
@@ -46,28 +55,18 @@ RECALL_REASONS = ("incorrect", "unsafe", "consent_withdrawn", "superseded", "sta
 RECALL_SEVERITIES = ("low", "medium", "high", "critical")
 RECALL_ACTIONS = ("quarantine", "rollback", "re_review")
 
-_IDENTITY = re.compile(r"^(human|mission_group):[^\s:]\S*$")
 _VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
+__all__ = ["require_identity"]  # re-exported for existing imports
 
-def require_identity(identity: str | None, *, role: str = "approver",
-                     mission_group: bool = False) -> str:
-    """Return the identity, stripped, if it names a human or a mission group.
 
-    Refuses empty identities, machine namespaces (agent:, model:, dream:)
-    and anything not written ``human:<who>`` or ``mission_group:<name>``.
-    With ``mission_group=True`` only a mission group is accepted."""
-    who = (identity or "").strip()
-    if not _IDENTITY.match(who):
-        raise PermissionError(
-            f"the {role} must be a human or a mission group, written human:<who> or "
-            f"mission_group:<name>; got {identity!r}. Machine identities such as "
-            f"agent:, model: and dream: cannot take this decision.")
-    if mission_group and not who.startswith("mission_group:"):
-        raise PermissionError(
-            f"the {role} must be a mission group (mission_group:<name>) for this "
-            f"decision; got {who!r}")
-    return who
+def _body(record) -> dict[str, Any]:
+    """An envelope body for a release or recall; ``approval`` appears only
+    when the decision was signed."""
+    body = record.model_dump(mode="json")
+    if body.get("approval") is None:
+        body.pop("approval", None)
+    return body
 
 
 def _version_tuple(version: str) -> tuple[int, int, int] | None:
@@ -108,6 +107,38 @@ class CapabilityStore:
         ]
 
 
+def prepare_promotion(
+    store: CapabilityStore,
+    capability_id: str,
+    outcome: str,
+    *,
+    approver: str,
+    to_layer: AuthorityLayer | str = AuthorityLayer.advisory,
+    notes: str = "",
+) -> tuple[CapabilityObject, AuthorityLayer, str, dict[str, Any]]:
+    """Validate a dawn decision and return the capability, the target layer,
+    the approver and the payload an approver signs."""
+    if outcome not in DAWN_OUTCOMES:
+        raise ValueError(f"outcome must be one of {', '.join(DAWN_OUTCOMES)}; got {outcome!r}")
+    layer = AuthorityLayer(to_layer)
+    if outcome == "promote" and layer == AuthorityLayer.evidence:
+        raise ValueError("promotion raises a capability to advisory or controlled")
+    who = require_identity(
+        approver, role="dawn approver",
+        mission_group=(outcome == "promote" and layer == AuthorityLayer.controlled))
+    caps = store.all()
+    if capability_id not in caps:
+        raise KeyError(f"unknown capability '{capability_id}'")
+    cap = caps[capability_id]
+    if cap.revocation_status != RevocationStatus.active:
+        raise ValueError(f"capability '{capability_id}' is {cap.revocation_status.value} "
+                         f"and can no longer be decided at dawn")
+    payload = promotion_payload(capability_id, outcome,
+                                layer.value if outcome == "promote" else None,
+                                cap.content_hash, who, notes)
+    return cap, layer, who, payload
+
+
 def dawn_decide(
     store: CapabilityStore,
     ledger,
@@ -117,25 +148,13 @@ def dawn_decide(
     approver: str,
     to_layer: AuthorityLayer | str = AuthorityLayer.advisory,
     notes: str = "",
+    approval: dict[str, Any] | None = None,
 ) -> CapabilityObject:
     """Apply one dawn-gate decision. Rejection never means deletion: a
     rejected capability remains governed evidence of what was considered."""
-    if outcome not in DAWN_OUTCOMES:
-        raise ValueError(f"outcome must be one of {', '.join(DAWN_OUTCOMES)}; got {outcome!r}")
-    layer = AuthorityLayer(to_layer)
-    if outcome == "promote" and layer == AuthorityLayer.evidence:
-        raise ValueError("promotion raises a capability to advisory or controlled")
-    who = require_identity(
-        approver, role="dawn approver",
-        mission_group=(outcome == "promote" and layer == AuthorityLayer.controlled))
-
-    caps = store.all()
-    if capability_id not in caps:
-        raise KeyError(f"unknown capability '{capability_id}'")
-    cap = caps[capability_id]
-    if cap.revocation_status != RevocationStatus.active:
-        raise ValueError(f"capability '{capability_id}' is {cap.revocation_status.value} "
-                         f"and can no longer be decided at dawn")
+    cap, layer, who, expected = prepare_promotion(
+        store, capability_id, outcome, approver=approver, to_layer=to_layer, notes=notes)
+    approval = enforce(ledger, expected, approval)
 
     if outcome == "promote":
         # Record the approver in provenance so the lockfile can answer
@@ -163,12 +182,12 @@ def dawn_decide(
     cap.updated_at = _now()
     cap.lineage.append(f"dawn:{outcome}:{who}")
     store.add(cap)
-    ledger.append(
-        "brevet.promotion",
-        {"capability_id": capability_id, "outcome": outcome, "approver": who,
-         "to_layer": layer.value if outcome == "promote" else None, "notes": notes},
-        refs=[capability_id],
-    )
+    body = {"capability_id": capability_id, "outcome": outcome, "approver": who,
+            "to_layer": expected["to_layer"], "notes": notes,
+            "content_hash": cap.content_hash}
+    if approval is not None:
+        body["approval"] = approval
+    ledger.append("brevet.promotion", body, refs=[capability_id])
     return cap
 
 
@@ -208,6 +227,41 @@ def build_lock(manifest: AgentManifest, store: CapabilityStore) -> CapabilitiesL
     return lock
 
 
+def prepare_release(
+    manifest: AgentManifest,
+    store: CapabilityStore,
+    *,
+    to_version: str,
+    channel: ReleaseChannel | str,
+    approver: str,
+    eval_summary: dict | None = None,
+    rationale: str = "",
+) -> tuple[str, ReleaseChannel, CapabilitiesLock, dict[str, Any]]:
+    """Validate a release and return the approver, the channel, the lock it
+    would ship and the payload an approver signs."""
+    who = require_identity(approver, role="release approver")
+    channel = ReleaseChannel(channel)
+    target = _version_tuple(to_version)
+    if target is None:
+        raise ValueError(f"to_version must be written like 1.2.3; got {to_version!r}")
+    current = _version_tuple(manifest.version)
+    if current is not None and target <= current:
+        raise ValueError(f"to_version {to_version} must be higher than the current "
+                         f"version {manifest.version}")
+    es = eval_summary or {}
+    if channel != ReleaseChannel.shadow and not conservative_gate(
+            es.get("delta_held_in", -1), es.get("delta_held_out", -1)):
+        raise ValueError(
+            "release blocked: conservative gate not passed "
+            "(need delta_in >= 0, delta_out >= 0, max > 0)"
+        )
+    lock = build_lock(manifest.model_copy(update={"version": to_version}), store)
+    payload = release_payload(manifest.agent, manifest.version, to_version, channel.value,
+                              lock.lockfile_hash, es.get("delta_held_in"),
+                              es.get("delta_held_out"), rationale, who)
+    return who, channel, lock, payload
+
+
 def release(
     manifest: AgentManifest,
     store: CapabilityStore,
@@ -219,30 +273,20 @@ def release(
     approver: str,
     eval_summary: dict | None = None,
     rationale: str = "",
+    approval: dict[str, Any] | None = None,
 ) -> tuple[AgentManifest, CapabilitiesLock, ReleaseRecord]:
     """Produce the next signed harness version.
 
     Non-shadow channels require the conservative gate to pass on the deltas
     in ``eval_summary``, which the caller supplies. The signature covers the
-    manifest, including the digest of the new capabilities.lock."""
-    who = require_identity(approver, role="release approver")
-    channel = ReleaseChannel(channel)
-    target = _version_tuple(to_version)
-    if target is None:
-        raise ValueError(f"to_version must be written like 1.2.3; got {to_version!r}")
-    current = _version_tuple(manifest.version)
-    if current is not None and target <= current:
-        raise ValueError(f"to_version {to_version} must be higher than the current "
-                         f"version {manifest.version}")
-    if channel != ReleaseChannel.shadow:
-        es = eval_summary or {}
-        if not conservative_gate(es.get("delta_held_in", -1), es.get("delta_held_out", -1)):
-            raise ValueError(
-                "release blocked: conservative gate not passed "
-                "(need delta_in >= 0, delta_out >= 0, max > 0)"
-            )
+    manifest, including the digest of the new capabilities.lock. A signed
+    approval must match the lock exactly: if promotions changed after it was
+    signed, the release is refused."""
+    who, channel, lock, expected = prepare_release(
+        manifest, store, to_version=to_version, channel=channel, approver=approver,
+        eval_summary=eval_summary, rationale=rationale)
+    approval = enforce(ledger, expected, approval)
 
-    lock = build_lock(manifest.model_copy(update={"version": to_version}), store)
     from_version = manifest.version
     manifest.version = to_version
     manifest.release = {"channel": channel.value, "lockfile_hash": lock.lockfile_hash}
@@ -270,8 +314,9 @@ def release(
         rollback_to=from_version,
         rationale=rationale,
         signer_public_key=public_key,
+        approval=approval,
     )
-    ledger.append("brevet.release", record.model_dump())
+    ledger.append("brevet.release", _body(record))
     return manifest, lock, record
 
 
@@ -285,20 +330,18 @@ def verify_manifest_signature(manifest: AgentManifest, public_key: str | None = 
     return Signer.verify(key, manifest.unsigned_payload(), sig["signature"])
 
 
-def recall(
+def prepare_recall(
     store: CapabilityStore,
-    ledger,
     capability_id: str,
     *,
     reason: str,
     reason_class: str,
     severity: str,
     issued_by: str,
-    releases: list[ReleaseRecord],
     action: str = "rollback",
-) -> RecallNotice:
-    """Withdraw one capability, flag every release whose lockfile contains
-    it, and record the recall notice on the evidence chain."""
+) -> tuple[CapabilityObject, str, dict[str, Any]]:
+    """Validate a recall and return the capability, the issuer and the
+    payload an approver signs."""
     who = require_identity(issued_by, role="recall issuer")
     if reason_class not in RECALL_REASONS:
         raise ValueError(f"reason_class must be one of {', '.join(RECALL_REASONS)}")
@@ -314,6 +357,30 @@ def recall(
     cap = caps[capability_id]
     if cap.revocation_status == RevocationStatus.withdrawn:
         raise ValueError(f"capability '{capability_id}' has already been recalled")
+    payload = recall_payload(capability_id, cap.content_hash, reason, reason_class,
+                             severity, action, who)
+    return cap, who, payload
+
+
+def recall(
+    store: CapabilityStore,
+    ledger,
+    capability_id: str,
+    *,
+    reason: str,
+    reason_class: str,
+    severity: str,
+    issued_by: str,
+    releases: list[ReleaseRecord],
+    action: str = "rollback",
+    approval: dict[str, Any] | None = None,
+) -> RecallNotice:
+    """Withdraw one capability, flag every release whose lockfile contains
+    it, and record the recall notice on the evidence chain."""
+    cap, who, expected = prepare_recall(
+        store, capability_id, reason=reason, reason_class=reason_class,
+        severity=severity, issued_by=issued_by, action=action)
+    approval = enforce(ledger, expected, approval)
     cap.revocation_status = RevocationStatus.withdrawn
     cap.validation_state = ValidationState.withdrawn
     cap.updated_at = _now()
@@ -336,6 +403,7 @@ def recall(
         action=action,
         affected_releases=affected,
         completed_at=_now(),
+        approval=approval,
     )
-    ledger.append("brevet.recall", notice.model_dump(), refs=[capability_id])
+    ledger.append("brevet.recall", _body(notice), refs=[capability_id])
     return notice

@@ -31,6 +31,7 @@
       }
     },
     "control_refs": { "type": "array", "items": { "type": "string" }, "description": "CHAP control.supersede / control.rollback envelope ids proving the recall executed." },
-    "completed_at": { "type": ["string", "null"], "format": "date-time" }
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "approval": { "type": ["object", "null"], "description": "Approver signatures over the exact recall, present once the workspace requires signed approvals." }
   }
 }
