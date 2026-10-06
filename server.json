@@ -3,7 +3,7 @@
   "name": "io.github.BrightbeamAI/brevet",
   "title": "Brevet",
   "description": "Change control for what AI agents learn: humans promote, releases are signed, rules can be recalled",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": {
     "url": "https://github.com/BrightbeamAI/brevet",
     "source": "github"
@@ -13,7 +13,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "brevet",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

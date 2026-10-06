@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-06)
+
+Signed approvals: an agent can request a decision, but only a person can
+sign it.
 
 ### Added
 

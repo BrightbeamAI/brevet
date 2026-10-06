@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brevet"
-version = "0.2.0"
+version = "0.3.0"
 description = "Change control for what AI agents learn: corrections become proposed rules, a named person approves each one, approved rules ship in signed versions, and any rule can be withdrawn. Wraps the agent framework you already use."
 # PyPI gets README_PYPI.md: README.md with links and figures made absolute and
 # pinned to the release tag (scripts/make_pypi_readme.py writes it).
