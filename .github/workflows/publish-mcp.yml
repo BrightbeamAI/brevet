@@ -1,0 +1,55 @@
+name: Publish to MCP Registry
+
+# Publishes server.json to the MCP Registry with GitHub OIDC. A workflow in
+# this repository is granted the io.github.BrightbeamAI namespace without any
+# secret, so publishing does not depend on who in the organisation runs it.
+# Runs when a GitHub release is published, or by hand from the Actions tab
+# (main only).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # the OIDC token the registry exchanges for publish rights
+
+jobs:
+  publish:
+    if: github.event_name == 'release' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that server.json describes this package
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          s = json.load(open("server.json"))
+          if s["name"] != "io.github.BrightbeamAI/brevet":
+              sys.exit(f"refusing to publish unexpected server name {s['name']}")
+          print(f"publishing {s['name']} {s['version']}")
+          EOF
+
+      - name: Wait for the release on PyPI
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('server.json'))['version'])")
+          for attempt in $(seq 1 30); do
+            if curl -fsS "https://pypi.org/pypi/brevet/${version}/json" > /dev/null; then
+              echo "brevet ${version} is on PyPI"; exit 0
+            fi
+            sleep 20
+          done
+          echo "brevet ${version} is not on PyPI; upload it before publishing" >&2
+          exit 1
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish

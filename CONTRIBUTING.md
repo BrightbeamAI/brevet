@@ -60,8 +60,11 @@ embedded in `docs/demo.html`.
    README on PyPI loads its figures from that tag.
 4. `python -m build`, `twine check dist/*`, then `twine upload dist/*`.
 5. Create the GitHub release from the tag with the CHANGELOG entry and the
-   two files in `dist/`, then publish `server.json` to the MCP Registry with
-   `mcp-publisher publish`.
+   two files in `dist/`. Publishing the release runs the *Publish to MCP
+   Registry* workflow, which waits for the version on PyPI and publishes
+   `server.json` with GitHub OIDC; it can also be run by hand from the Actions
+   tab. (Publishing from a laptop with `mcp-publisher login github` works only
+   for owners of the BrightbeamAI organisation.)
 
 ## Licence
 
