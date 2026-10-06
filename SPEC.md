@@ -4,8 +4,9 @@ The five JSON Schemas in `schemas/` define Brevet's records. This document
 states the rules a conforming deployment must enforce around them, using
 MUST and SHOULD in their usual standards sense. For plain-language
 definitions, see [GLOSSARY.md](GLOSSARY.md). Version 0.1 of this repository
-implements the records and steps; the README's *Project status* section and
-the paper's implementation table list the requirements a deployment adds.
+implements the records and steps; the *Project status* section of
+[ABOUT.md](ABOUT.md#project-status) and the paper's implementation table list
+the requirements a deployment adds.
 
 ## 1. Objects
 

@@ -4,7 +4,8 @@
 
 - Documentation rewritten so that each of the paper's terms (override,
   dream, dawn, evals, release, recall, the authority ladder) comes with a
-  plain explanation: a new README with a worked example, new diagrams in light
+  plain explanation: a short README built around a worked example, an
+  ABOUT.md that walks through the loop stage by stage, new diagrams in light
   and dark versions for GitHub's two colour modes, and a glossary that gives
   each term's plain meaning before its precise definition. The specification,
   benchmark design and Claude example now state the same requirements as the

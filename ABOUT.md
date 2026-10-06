@@ -1,8 +1,8 @@
 # About Brevet
 
-How Brevet is built, how the repository is organised and what each part
-does. For a first look, start with the [README](README.md). For definitions
-of every term, see the [GLOSSARY](GLOSSARY.md). For the rules any
+The detail behind the [README](README.md): how the governed evolution loop
+works, how Brevet is built and how the repository is organised. For
+definitions of every term, see the [GLOSSARY](GLOSSARY.md). For the rules any
 implementation must follow, see [SPEC.md](SPEC.md).
 
 ## Why Brevet exists
@@ -44,12 +44,77 @@ framework you already use and keeps the records around it.
 | [Metis](https://github.com/BrightbeamAI/metis) | What do our experts know that is not written down? | experts' know-how, captured as governed memory |
 | **Brevet** | How does the agent change, and on whose approval? | approvals, capability state and recalls |
 
-The three are designed to work together. Brevet's evidence envelopes
-follow CHAP's envelope model, and Brevet can mirror them to a live CHAP
-coordinator or import CHAP review decisions as overrides. Brevet's
+The three are designed to work together, and each owns its own records.
+Brevet's evidence envelopes follow CHAP's envelope model, so Brevet writes
+CHAP-compatible evidence and can mirror it to a live CHAP coordinator;
+`brevet chap-ingest` imports CHAP review decisions as overrides. Brevet's
 capability object extends the tuple Metis uses for tacit fragments, adding a
 `kind` field. For `memory_fragment` capabilities, Metis stays the system of
 record; Brevet records only the binding and its approval.
+
+## The governed evolution loop
+
+The loop has seven stages. Each one appends its envelopes to the evidence
+chain.
+
+| Stage | What happens | Who acts | What is recorded |
+|---|---|---|---|
+| **Work** `run()` | The agent drafts under one signed harness. | the agent | `brevet.task`, `brevet.artefact` |
+| **Override** `record_final()` | An expert corrects the draft; the difference and the reason become an override. | an expert | `brevet.override` |
+| **Dream** `dream()` | Offline, recurring overrides become candidate capabilities and eval cases, with no authority. | Brevet | `brevet.candidate` |
+| **Dawn** `dawn()` | Each candidate is promoted, held, rejected or sent back for re-elicitation. | a named human or mission group | `brevet.promotion` |
+| **Evals** `evaluate()` | Overrides replay as tests. The conservative gate needs neither split to get worse and at least one to improve. | Brevet | `brevet.eval_run` |
+| **Release** `release()` | Promoted capabilities ship in a signed release with its `capabilities.lock`. | a named human or mission group | `brevet.release` |
+| **Recall** `recall()` | A capability is withdrawn, and every release that shipped it is flagged. | a named human or mission group | `brevet.recall` |
+
+The names follow the loop's day-and-night rhythm, which the paper calls the
+circadian contract. Awake, the agent works under one signed version and does
+not change itself. While it sleeps, the dream cycle mines what the day's
+overrides imply. At dawn, people review what the night proposed, and only what
+they promote reaches the agent, through a signed release.
+
+Overrides come in two kinds. A **refining** override keeps the agent's decision
+and changes its wording. A **substituting** override reaches a different
+decision, as when *minor* becomes *major*. The dream cycle treats them as soft
+and hard signals.
+
+## The authority ladder
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/levels-dark.svg">
+    <img src="docs/assets/levels-light.svg" alt="The authority ladder: Evidence holds candidates with no operational authority; promotion at the dawn gate by a named human raises a capability to Advisory, where it may inform drafts a human still checks; promotion by the mission group raises it to Controlled, where it may drive actions directly. A recalled capability leaves future releases and every release that shipped it is flagged." width="860">
+  </picture>
+</p>
+
+Every capability holds one authority layer. It enters at **Evidence**, with no
+operational authority. Promotion at the dawn gate raises it to **Advisory**,
+where it may inform what the agent drafts while a human still checks each
+result. **Controlled**, where it may drive actions directly, needs review by
+the mission group. Rejection is not deletion: rejected candidates stay on the
+evidence chain, so "was this ever proposed, and why did we say no?" always has
+an answer.
+
+## The worked example
+
+[examples/pump_vibration.py](examples/pump_vibration.py) runs the README's
+example from the first override to the recall. Running it prints:
+
+```text
+1. Work and override: 4 overrides recorded from 5 drafts (1 draft accepted as it was).
+2. Dream: 1 candidate capability, Evidence layer (no authority yet):
+   In equipment_triage work involving 'vibration-during-cleaning', reviewers changed
+   the agent's decision 4 times. Their reason: Vibration during cleaning is an early
+   sign of seal wear. Proposed rule: when this situation applies, raise it explicitly
+   and follow the reviewers' decision.
+3. Dawn: rejected an approval from dream:nightly (machine identities cannot promote).
+   Dawn: promoted to Advisory by mission_group:quality_team.
+4. Evals: 0/4 passed before, 4/4 after. Conservative gate: pass.
+5. Release: 0.2.0 signed; capabilities.lock lists 1 promoted capability and its approver.
+6. Recall: capability recalled; releases flagged: 0.2.0.
+7. Verify: evidence chain intact.
+   Records are in <temporary folder>
+```
 
 ## What is in the box
 
@@ -64,8 +129,9 @@ record; Brevet records only the binding and its approval.
   and drafts a candidate capability from each group. It needs no benchmark,
   because the overrides supply the examples.
 - **Override-compiled evals.** `agent.evaluate()` replays the overrides as
-  tests. A release must pass the conservative gate: neither half may get
-  worse, and at least one must improve.
+  tests, so no separate labelling project is needed. A release must pass the
+  conservative gate: neither half may get worse, and at least one must
+  improve.
 - **A capability bill of materials for every release.** `capabilities.lock`
   lists what the release knows, where each capability came from and who
   approved it.
@@ -84,6 +150,13 @@ record; Brevet records only the binding and its approval.
 
 ## Supported frameworks
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wrap-dark.svg">
+    <img src="docs/assets/wrap-light.svg" alt="brevet.wrap(agent) places the agent, unchanged, inside four records: the signed manifest, the hash-linked evidence chain, the dawn gate, and capabilities.lock." width="860">
+  </picture>
+</p>
+
 `brevet.wrap()` works out which framework built the agent from the agent
 object itself. The framework keeps running the agent; Brevet keeps the
 records.
@@ -101,10 +174,28 @@ records.
 | OpenAI Agents SDK | `brevet.wrap(agent)` |
 | any Python function | `brevet.wrap(fn)` |
 
-Another framework needs one adapter class registered with
-`brevet.register_adapter` (the README shows how). No framework is ever a
-required dependency: adapters check the shape of the object they are given,
-and the tests use stand-ins rather than the real frameworks.
+Another framework needs one adapter class, registered with
+`brevet.register_adapter`:
+
+```python
+@brevet.register_adapter("myfw", prefixes=("myfw",))
+class MyAdapter(brevet.BaseAdapter):
+    def invoke(self, task, context):
+        return self.target.do(task), [{"step": "do"}]
+```
+
+No framework is ever a required dependency: adapters check the shape of the
+object they are given, and the tests use stand-ins rather than the real
+frameworks. The whole loop is also available to any MCP client, such as
+Claude Desktop or Cursor, through `brevet mcp`.
+
+## Governing what Claude itself learns
+
+Claude Desktop and Cowork already learn between sessions through memory, saved
+skills and standing instructions. [examples/claude-cowork](examples/claude-cowork)
+puts that learning under the governed evolution loop in a few minutes. Your
+corrections become overrides, you promote candidates at dawn, and Claude follows
+only capabilities from a signed release.
 
 ## What Brevet is not
 
@@ -114,6 +205,23 @@ and an endogenous candidate can never be promoted by the process that
 proposed it. It is not a monitoring tool either. The manifest declares whose
 overrides the dream cycle may learn from, and Evidence-layer material never
 influences the agent.
+
+## Project status
+
+Version 0.1 implements the whole loop and keeps every record. Three protections
+are left to the system you deploy it in, and the [paper](README.md#citation)
+sets them out in full:
+
+- **Authenticated approvers.** Version 0.1 records the approver identity and
+  rejects machine namespaces. Proving that the named human really decided needs
+  authenticated identities, which CHAP's participant keys can supply.
+- **Complete recall.** Version 0.1 excludes the recalled capability from future
+  releases and flags the affected ones. Blocking identical content from
+  returning under a new identifier, and confirming that running agents have
+  stopped using it, need checks where the agent runs.
+- **An anchored evidence chain.** Replay detects edits that break the chain.
+  Detecting a wholesale rewrite needs the latest chain hash held outside the
+  machine, which a CHAP coordinator can hold.
 
 ## How the repository is organised
 
@@ -196,7 +304,8 @@ benchmark exists yet.
 ## Design principles
 
 - **Authority is granted, never grabbed.** Every increase in a
-  capability's authority is a recorded human decision.
+  capability's authority is a recorded human decision, and approvals made
+  under an `agent:`, `model:` or `dream:` identity are rejected.
 - **The running agent does not change itself.** It runs one released
   version. Learning happens between versions, where it can be reviewed.
 - **Overrides are evidence, not truth.** Experts' corrections are the best

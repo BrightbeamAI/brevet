@@ -22,6 +22,7 @@ API key is needed: the agent here is a plain Python function.
 """
 
 import tempfile
+import textwrap
 from pathlib import Path
 
 import brevet
@@ -82,7 +83,8 @@ def main() -> None:
     rule = next(c for c in candidates if c.kind == "prompt_rule")
     print(f"2. Dream: 1 candidate capability, {rule.authority_layer.value.capitalize()} "
           f"layer (no authority yet):")
-    print(f"   {rule.content}")
+    print(textwrap.fill(rule.content, width=86,
+                        initial_indent="   ", subsequent_indent="   "))
 
     # 3. Dawn. A machine identity cannot promote a candidate...
     try:
@@ -129,7 +131,8 @@ def main() -> None:
 
     # 7. Verify. Replay the hash-linked evidence chain.
     ok, _ = agent.verify()
-    print(f"7. Verify: evidence chain {'intact' if ok else 'BROKEN'}. Records are in {folder}")
+    print(f"7. Verify: evidence chain {'intact' if ok else 'BROKEN'}.")
+    print(f"   Records are in {folder}")
 
 
 if __name__ == "__main__":
