@@ -80,3 +80,12 @@ def file_lock(path: str | Path) -> Iterator[None]:
                 yield
             finally:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def write_atomic(path: str | Path, text: str) -> None:
+    """Replace a file in one step, so a process reading it at the same moment
+    sees the old version or the new one, never half of each."""
+    target = Path(path)
+    tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, target)

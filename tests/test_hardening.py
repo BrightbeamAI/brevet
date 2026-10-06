@@ -223,9 +223,12 @@ def test_the_wrapper_refuses_an_edited_manifest_outside_shadow(tmp_path):
     agent.release(to_version="0.2.0", channel="trial", approver="human:qa@x",
                   delta_in=0.1, delta_out=0.0)
     agent.run("still signed")
-    agent.manifest.prompt_architecture["system_prompt"] = "edited after release"
+    path = tmp_path / ".brevet" / "agent.yaml"
+    edited = yaml.safe_load(path.read_text())
+    edited["prompt_architecture"]["system_prompt"] = "edited after release"
+    path.write_text(yaml.safe_dump(edited))
     with pytest.raises(PermissionError):
-        agent.run("edited")
+        brevet.wrap(stub, workdir=tmp_path / ".brevet").run("edited")
 
 
 # ------------------------------------------------------------- evidence chain
@@ -377,6 +380,77 @@ def test_brevet_active_refuses_an_edited_lock_or_manifest(tmp_path):
     assert "error" in _call(server, "brevet_active")
 
 
+def test_brevet_active_checks_conditions_and_serves_no_unhashed_title(tmp_path):
+    server, cap_id = _mcp_released(tmp_path)
+    assert "title" not in _call(server, "brevet_active")["active"][0]
+    store = CapabilityStore(tmp_path / ".brevet" / "capabilities.jsonl")
+    cap = store.all()[cap_id]
+    cap.conditions.task_family = None if cap.conditions.task_family else "everything"
+    store.add(cap)  # the rule's conditions changed after release
+    out = _call(server, "brevet_active")
+    assert out["count"] == 0 and out["withheld"] == [cap_id]
+
+
+def test_condition_digests_stay_stable_for_locks_already_released():
+    from brevet.canonical import object_sha256
+    from brevet.models import ApplicabilityContext
+    cond = ApplicabilityContext(task_family="email", exclusion_conditions=["legal"])
+    assert cond.digest() == object_sha256(cond.model_dump())  # the 0.1 to 0.3 formula
+
+
+def test_brevet_active_needs_a_signed_release_once_approvers_exist(tmp_path):
+    from brevet.approvals import apply_if_ready, create_key, request_register_add
+    server, _ = _mcp_released(tmp_path)
+    key = create_key("human:alice@example.com", "a long passphrase", tmp_path / "keys")
+    req = request_register_add(tmp_path / ".brevet", key)
+    assert apply_if_ready(tmp_path / ".brevet", req["request_id"])["status"] == "applied"
+    out = _call(server, "brevet_active")
+    assert out["count"] == 0 and "no approver signatures" in out["error"]
+
+
+def test_brevet_active_flags_a_manifest_edited_after_an_older_release(tmp_path):
+    from brevet.ledger import Ledger
+    server, _ = _mcp_released(tmp_path)
+    ledger = Ledger(tmp_path / ".brevet" / "ledger.jsonl")
+    legacy = dict(list(ledger.read("brevet.release"))[-1]["body"])
+    legacy.pop("signer_public_key")  # as releases made before 0.2.0 were recorded
+    ledger.append("brevet.release", legacy)
+    assert "manifest_warning" not in _call(server, "brevet_active")
+    manifest = yaml.safe_load((tmp_path / "agent.yaml").read_text())
+    manifest["runtime_safety"] = {"evidence": {"auto_capture": True}}
+    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(manifest))
+    out = _call(server, "brevet_active")
+    assert out["count"] == 1 and "agent.yaml changed" in out["manifest_warning"]
+
+
+def test_brevet_active_withholds_a_rule_switched_off_without_a_recall(tmp_path):
+    server, cap_id = _mcp_released(tmp_path)
+    store = CapabilityStore(tmp_path / ".brevet" / "capabilities.jsonl")
+    cap = store.all()[cap_id]
+    cap.revocation_status = RevocationStatus.superseded  # no recall on the chain
+    store.add(cap)
+    assert _call(server, "brevet_active")["withheld"] == [cap_id]
+    _call(server, "brevet_recall", {"capability_id": cap_id, "reason": "wrong",
+                                    "issued_by": "human:qa@x"})
+    out = _call(server, "brevet_active")
+    assert out["count"] == 0 and "withheld" not in out
+
+
+def test_the_wrapper_refuses_a_release_signed_with_another_key(tmp_path):
+    from brevet.canonical import Signer
+
+    def stub(task, context):
+        return "ok"
+    agent = brevet.wrap(stub, workdir=tmp_path / ".brevet")
+    agent.release(to_version="0.2.0", channel="trial", approver="human:qa@x",
+                  delta_in=0.1, delta_out=0.0)
+    key = tmp_path / ".brevet" / "keys" / "brevet_ed25519.pem"
+    key.unlink()
+    Signer(key).public_key_hex()  # a new workspace key, not the one the release recorded
+    with pytest.raises(PermissionError, match="signing key"):
+        brevet.wrap(stub, workdir=tmp_path / ".brevet").run("after the key changed")
+
+
 def test_brevet_active_refuses_a_broken_chain(tmp_path):
     server, _ = _mcp_released(tmp_path)
     path = tmp_path / ".brevet" / "ledger.jsonl"
@@ -409,11 +483,14 @@ def test_mcp_tools_carry_annotations(tmp_path):
     from brevet.mcp_server import build_server
     server = build_server(str(tmp_path / ".brevet"), str(tmp_path / "agent.yaml"))
     tools = {t.name: t for t in asyncio.run(server.list_tools())}
-    assert len(tools) == 10
+    assert len(tools) == 14 and {"brevet_harness", "brevet_acknowledge", "brevet_anchor",
+                                 "brevet_rollback"} <= set(tools)
     def hints(name):  # camelCase on the wire in both SDK versions
         return tools[name].annotations.model_dump(by_alias=True)
     assert hints("brevet_active")["readOnlyHint"] is True
     assert hints("brevet_release")["destructiveHint"] is True
+    assert hints("brevet_rollback")["destructiveHint"] is True
+    assert hints("brevet_acknowledge")["readOnlyHint"] is False
 
 
 # ------------------------------------------------------------- CLI

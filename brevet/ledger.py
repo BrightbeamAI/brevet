@@ -17,9 +17,20 @@ declared by the ``brevet/1.0`` profile:
     brevet.recall          a capability recall notice
     brevet.eval_run        an eval run over the override-compiled cases
     brevet.model_assist    a logged model-drafting event (drafts only)
+    brevet.approver        an approver registered or revoked, or a threshold
+    brevet.drift           the harness differs from its release
+    brevet.recall_ack      a running agent confirmed it stopped using a recalled
+                           capability
+    brevet.tool_call       a tool call the tool broker allowed or refused
+    brevet.consent         a participant withdrew consent
+    brevet.gate            the conservative gate blocked a release
+
+Each envelope names the runtime that wrote it (``"runtime": "brevet/0.4.0"``).
 
 Appends take a file lock and re-read the chain's last hash, so several
 processes (an MCP server, a scheduled ingest, the CLI) can share one chain.
+After every governing envelope the chain's head is anchored outside the
+workspace, where anchors are configured (see ``brevet.anchor``).
 """
 
 from __future__ import annotations
@@ -30,12 +41,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from brevet.anchor import ANCHORED_KINDS
 from brevet.canonical import chain_hash
 from brevet.models import new_id
 from brevet.workdir import file_lock
 
 GENESIS = "sha256:" + "0" * 64
 _TAIL_WINDOW = 1 << 20  # bytes read from the end of the file to find the last hash
+
+
+def _runtime() -> str:
+    """The runtime that writes an envelope, named in it so replay knows which
+    rules the envelope was written under."""
+    from brevet import __version__
+    return f"brevet/{__version__}"
 
 
 def _chain_hash_of(raw: bytes) -> str | None:
@@ -52,10 +71,14 @@ def _chain_hash_of(raw: bytes) -> str | None:
 
 
 class Ledger:
-    def __init__(self, path: Path | str, dispatcher: Any | None = None):
+    def __init__(self, path: Path | str, dispatcher: Any | None = None, *,
+                 manifest: Any = None, anchoring: bool = True):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.dispatcher = dispatcher  # optional live CHAP mirror (fails soft)
+        self.manifest = manifest      # where anchors may be declared
+        self.anchoring = anchoring
+        self.on_append: list[Any] = []  # callbacks(before, after): file stats around each append
         self._prev = self._tail_hash()
 
     def _tail_hash(self) -> str:
@@ -83,11 +106,13 @@ class Ledger:
 
     def append(self, kind: str, body: dict[str, Any], *, refs: list[str] | None = None) -> str:
         with file_lock(self.path):
+            before = self.path.stat() if self.path.exists() else None
             prev = self._tail_hash()  # another process may have appended
             envelope = {
                 "envelope_id": new_id("env"),
                 "kind": kind,
                 "created_at": datetime.now(timezone.utc).isoformat(),
+                "runtime": _runtime(),
                 "refs": refs or [],
                 "body": body,
                 "prev_hash": prev,
@@ -98,9 +123,27 @@ class Ledger:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(envelope, ensure_ascii=False) + "\n")
             self._prev = envelope["chain_hash"]
+            after = self.path.stat()
+            for callback in self.on_append:
+                callback(before, after)
         if self.dispatcher is not None:
             self.dispatcher.dispatch(envelope)
+        if self.anchoring and kind in ANCHORED_KINDS:
+            self.anchor()
         return envelope["envelope_id"]
+
+    def anchor(self) -> dict[str, Any] | None:
+        """Write the chain's head to the configured anchors, if any. A
+        failure to anchor never undoes or blocks the append itself."""
+        import warnings
+
+        from brevet.anchor import anchor, configured
+        try:
+            if configured(self.path.parent, self.manifest):
+                return anchor(self, self.path.parent, manifest=self.manifest)
+        except Exception as e:  # noqa: BLE001 - reported, never allowed to undo the append
+            warnings.warn(f"brevet: could not anchor the evidence chain: {e}", stacklevel=2)
+        return None
 
     def read(self, kind: str | None = None) -> Iterator[dict[str, Any]]:
         """Envelopes in order. A damaged line is skipped here; verify()

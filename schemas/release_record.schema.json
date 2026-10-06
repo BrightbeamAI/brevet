@@ -17,7 +17,15 @@
     "lockfile_hash": { "type": "string" },
     "eval_summary": {
       "type": "object",
+      "description": "The evidence behind the release's numbers: measured (bound to two eval runs, whose deltas these are), attested (deltas the approver vouches for) or rollback (a return to an earlier release).",
       "properties": {
+        "source": { "type": "string", "enum": ["measured", "attested", "rollback"] },
+        "before": { "type": ["string", "null"], "description": "Envelope id of the eval run of the current release." },
+        "after": { "type": ["string", "null"], "description": "Envelope id of the eval run of what this release locks." },
+        "attested_by": { "type": ["string", "null"] },
+        "restores": { "type": ["string", "null"] },
+        "cases_digest": { "type": ["string", "null"] },
+        "scorer": { "type": ["string", "null"] },
         "suite": { "type": ["string", "null"] },
         "delta_held_in": { "type": ["number", "null"] },
         "delta_held_out": { "type": ["number", "null"] },
@@ -32,6 +40,7 @@
     "rollback_to": { "type": ["string", "null"], "description": "Version restored if this release is rolled back." },
     "rationale": { "type": ["string", "null"] },
     "signer_public_key": { "type": "string", "description": "Hex Ed25519 public key that signed this release, recorded on the evidence chain." },
-    "approval": { "type": ["object", "null"], "description": "Approver signatures over the exact release, present once the workspace requires signed approvals." }
+    "approval": { "type": ["object", "null"], "description": "Approver signatures over the exact release, present once the workspace requires signed approvals." },
+    "restores": { "type": ["string", "null"], "description": "Set on a rollback: the earlier release whose manifest, harness and capabilities this release restores." }
   }
 }

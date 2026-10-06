@@ -25,7 +25,7 @@ def test_playground_full_loop(tmp_path):
     assert results["release"]["artifact"]["signature"]["algorithm"] == "ed25519"
     lock = results["release"]["artifact"]["capabilities_lock"]
     assert lock["resolved"] and all(
-        c["approved_by"] == "mission_group:right_first_time"
+        c["approved_by"] == "mission_group:quality_team"
         for c in lock["resolved"])
 
     # recall flagged the release; the chain replays clean

@@ -5,7 +5,6 @@ type: software
 authors:
   - family-names: Shahid
     given-names: Arsalan
-    email: arsalan.shahid@brightbeam.com
     affiliation: Brightbeam AI
   - family-names: Suttie
     given-names: Gordon
@@ -13,8 +12,11 @@ authors:
   - family-names: Black
     given-names: Philip
     affiliation: Brightbeam AI
-version: 0.3.0
-date-released: 2026-10-06
+contact:
+  - name: Brightbeam AI
+    email: oss@brightbeam.com
+version: 0.4.0
+date-released: 2026-10-07
 license: Apache-2.0
 repository-code: "https://github.com/BrightbeamAI/brevet"
 keywords:
@@ -23,3 +25,21 @@ keywords:
   - governance
   - evidence chain
   - capability recall
+references:
+  - type: report
+    title: "Brevet: Change Control for What Self-Evolving AI Agents Learn"
+    authors:
+      - family-names: Shahid
+        given-names: Arsalan
+        affiliation: Brightbeam AI
+      - family-names: Suttie
+        given-names: Gordon
+        affiliation: Brightbeam AI
+      - family-names: Black
+        given-names: Philip
+        affiliation: Brightbeam AI
+    institution:
+      name: Brightbeam AI
+    year: 2026
+    status: preprint
+    repository-code: "https://github.com/BrightbeamAI/brevet"

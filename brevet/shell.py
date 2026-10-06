@@ -12,9 +12,12 @@ governed evolution loop:
     agent.dream()                                # mine candidates, compile evals
     agent.dawn()                                 # -> the dawn queue
     agent.dawn(decide=(cap_id, "promote"), approver="human:me@org")
+    before = agent.evaluate(baseline=True)       # the current release
+    after = agent.evaluate()                     # what the next release would ship
     agent.release(to_version="0.2.0", channel="trial", approver="human:me@org",
-                  delta_in=0.2, delta_out=0.1)
+                  evals=(before, after))
     agent.recall(cap_id, reason="...", issued_by="human:me@org")
+    agent.rollback("0.1.0", approver="human:me@org")
     agent.verify()
 
 `wrap()` works out the framework (LangGraph, Claude Agent SDK, DeepAgents,
@@ -22,26 +25,42 @@ AutoGen, LlamaIndex, Pydantic AI, Google ADK, CrewAI, OpenAI Agents, or any
 Python function), creates a starter agent.yaml when none exists, and keeps
 everything under `.brevet/`. Every stage is a method on the returned
 object; the CLI and the MCP server call the same functions.
+
+With each task the agent receives the governed rules of its release
+(``runtime_safety.serve_rules``): ``context`` passes them in the context
+dict to agents that take one, ``prompt`` puts them before the task text, and
+``none`` leaves serving to you. Declared tools go through the tool broker.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from brevet import anchor as anchors
+from brevet import broker as broker_mod
+from brevet import consent as consent_mod
+from brevet import releases
 from brevet.adapters import BaseAdapter, detect, get_adapter
+from brevet.approvals import verify_envelopes
 from brevet.assist import ModelAssist, NoModelAssist
-from brevet.canonical import Signer
+from brevet.canonical import Signer, object_sha256
 from brevet.chap_bridge import dispatcher_from_ref
 from brevet.delta import dream_cycle
+from brevet.evals import capability_set_digest, harness_digests, manifest_core
 from brevet.evidence import harvest_override
+from brevet.harness import blocking, compare, drift_digest, inventory, load_lock, lock_digest
 from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
+    build_lock,
     dawn_decide,
     verify_manifest_signature,
 )
@@ -53,14 +72,23 @@ from brevet.lifecycle import (
 )
 from brevet.models import (
     AgentManifest,
+    ApplicabilityContext,
     AuthorityLayer,
+    CapabilitiesLock,
     CapabilityObject,
     OverrideRecord,
     RecallNotice,
     ReleaseChannel,
     ReleaseRecord,
 )
+from brevet.recalls import acknowledge, is_acknowledged, reaches_content
+from brevet.serving import chain_facts_from, resolve, rules_text
 from brevet.workdir import ensure_workdir
+
+SERVE_MODES = ("context", "prompt", "none")
+_GOVERNING = ("brevet.release", "brevet.promotion", "brevet.recall", "brevet.approver",
+              "brevet.recall_ack")
+_ANCHOR_RECHECK = 60.0  # seconds between anchor checks while nothing changes
 
 
 @dataclass
@@ -69,6 +97,7 @@ class RunResult:
     output: str
     trace: list[dict[str, Any]] = field(default_factory=list)
     artefact_ref: str = ""
+    rules: list[str] = field(default_factory=list)  # capability ids served with the task
 
 
 def _default_manifest(name: str) -> AgentManifest:
@@ -88,8 +117,7 @@ def _default_manifest(name: str) -> AgentManifest:
                                      "capture_overrides": True},
                         "evals": {"regression_suite": None, "gate": "conservative",
                                   "repeats": 3},
-                        "dream": {"enabled": True,
-                                  "consent_scope": "consented_sources_only"}},
+                        "dream": {"enabled": True, "consent_scope": "all_recorded"}},
     )
 
 
@@ -104,9 +132,10 @@ class BrevetAgent:
 
     def __init__(self, adapter: BaseAdapter, manifest: AgentManifest, workdir: Path,
                  manifest_path: Path | None = None,
-                 assist: ModelAssist | None = None):
+                 assist: ModelAssist | None = None,
+                 grantor: Callable[[str, dict[str, Any]], str | None] | None = None):
         self.adapter = adapter
-        self.manifest = manifest
+        self._manifest = manifest
         self.workdir = ensure_workdir(workdir)
         self.manifest_path = manifest_path
         self.assist = assist or NoModelAssist()
@@ -115,45 +144,406 @@ class BrevetAgent:
                       .get("ledger", "file:./ledger.jsonl"))
         path = self.workdir / (ledger_ref[5:] if ledger_ref.startswith("file:")
                                else "ledger.jsonl")
-        self.ledger = Ledger(path, dispatcher=dispatcher_from_ref(ledger_ref, self.workdir))
+        self.ledger = Ledger(path, dispatcher=dispatcher_from_ref(ledger_ref, self.workdir),
+                             manifest=manifest)
         self.store = CapabilityStore(self.workdir / "capabilities.jsonl")
         self.signer = Signer(self.workdir / "keys" / "brevet_ed25519.pem")
+        self.broker = broker_mod.ToolBroker(lambda: self.manifest, self.ledger,
+                                            agent=lambda: self.manifest.agent,
+                                            grantor=grantor)
         self._drafts: dict[str, str] = {}
         self._families: dict[str, str] = {}
+        self._drift_recorded: set[str] = set()
+        self._scan_offset = 0
+        self._governing: list[dict[str, Any]] = []
+        self._anchor_state: tuple[Any, float] | None = None
+        self._caps: tuple[tuple[int, int], dict[str, CapabilityObject]] | None = None
+        self._eval_lock: CapabilitiesLock | None = None
+        self._chain_state: tuple[int, int, int] | None = None
+        self._chain_checked = 0.0
+        self.ledger.on_append.append(self._own_append)
+        self._guard_tools()
 
-    # ------------------------------------------------------------ waking
+    @property
+    def manifest(self) -> AgentManifest:
+        return self._manifest
+
+    @manifest.setter
+    def manifest(self, value: AgentManifest) -> None:
+        self._manifest = value
+        self.ledger.manifest = value
+
+    # ------------------------------------------------------------ tools
+
+    def _guard_tools(self) -> list[str]:
+        """Route the wrapped agent's tools through the broker. Repeated before
+        every task, so tools added to the agent later are guarded too."""
+        broker_mod.install(self.adapter.target, self.broker)
+        return self.broker.guarded
+
+    def tool(self, fn: Callable | None = None, *, name: str | None = None) -> Callable:
+        """Decorator for tools in your own code: each call is checked against
+        the manifest's tool tiers before it runs."""
+        if fn is None:
+            return lambda f: self.broker.guard(f, name)
+        return self.broker.guard(fn, name)
+
+    # ------------------------------------------------------------ work
+
+    def _governing_envelopes(self) -> list[dict[str, Any]]:
+        """Releases, dawn decisions, recalls, acknowledgements and register
+        changes on the chain, read incrementally so each run reads only what
+        was appended."""
+        path = self.ledger.path
+        size = path.stat().st_size if path.exists() else 0
+        if size < self._scan_offset:  # the chain was replaced or cut short
+            self._scan_offset, self._governing = 0, []
+            self._anchor_state = None
+        if size > self._scan_offset:
+            with path.open("rb") as f:
+                f.seek(self._scan_offset)
+                chunk = f.read()
+            end = chunk.rfind(b"\n") + 1
+            for raw in chunk[:end].split(b"\n"):
+                try:
+                    env = json.loads(raw) if raw.strip() else None
+                except ValueError:
+                    env = None
+                if isinstance(env, dict) and env.get("kind") in _GOVERNING:
+                    self._governing.append(env)
+            self._scan_offset += end
+        return self._governing
+
+    def _latest_release(self) -> dict[str, Any] | None:
+        releases_ = [e for e in self._governing_envelopes() if e["kind"] == "brevet.release"
+                     and e["body"].get("agent") == self.manifest.agent]
+        return releases_[-1] if releases_ else None
+
+    @staticmethod
+    def _is_release(manifest: AgentManifest, body: dict[str, Any]) -> bool:
+        """Whether ``manifest`` is the one the release ``body`` recorded."""
+        return body.get("to_version") == manifest.version and (
+            not body.get("manifest_hash")
+            or body["manifest_hash"] == object_sha256(manifest.unsigned_payload()))
+
+    def _read_manifest_file(self) -> AgentManifest | None:
+        if not self.manifest_path or not self.manifest_path.exists():
+            return None
+        try:
+            return AgentManifest(**(yaml.safe_load(
+                self.manifest_path.read_text(encoding="utf-8")) or {}))
+        except (OSError, ValueError, yaml.YAMLError):  # includes a half-written file
+            return None
+
+    def _sync_manifest(self) -> None:
+        """Adopt agent.yaml from disk when it is the chain's latest release and
+        this agent's copy is not: another process (the CLI, the MCP server or
+        ``brevet approve``) released since this agent was wrapped. Nothing
+        else is adopted, so an unreleased edit never slips in this way."""
+        latest = self._latest_release()
+        if latest is None or self._is_release(self.manifest, latest["body"]):
+            return
+        fresh = self._read_manifest_file()
+        if (fresh is not None and fresh.agent == self.manifest.agent
+                and self._is_release(fresh, latest["body"])):
+            self.manifest = fresh
+
+    @staticmethod
+    def _stamp(st) -> tuple[int, int, int, int]:
+        # ctime too: an edit can restore the size and mtime, never the ctime
+        return (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
+
+    def _own_append(self, before, after) -> None:
+        """This process's own appends extend the replayed prefix; anything
+        else written since forces a full replay."""
+        if before is not None and self._chain_state == self._stamp(before):
+            self._chain_state = self._stamp(after)
+
+    def _check_chain(self) -> bool:
+        """Replay the chain whenever it changed other than by this agent's own
+        appends, and at least every five minutes. True when it replayed."""
+        path = self.ledger.path
+        if not path.exists():
+            return False
+        stamp = self._stamp(path.stat())
+        if stamp == self._chain_state and time.monotonic() - self._chain_checked < 300:
+            return False
+        ok, n = self.ledger.verify()
+        if not ok:
+            raise PermissionError(
+                f"refusing to run {self.manifest.agent} {self.manifest.version}: the evidence "
+                f"chain is broken at envelope {n + 1}; run brevet verify.")
+        self._chain_state, self._chain_checked = stamp, time.monotonic()
+        self._anchor_state = None  # a changed chain is checked against its anchors again
+        return True
+
+    def _check_anchors(self) -> None:
+        """Refuse to run on a chain that no longer holds a head anchored
+        outside the workspace. Checked again whenever an anchor log changes,
+        and at least every minute."""
+        refs = anchors.configured(self.workdir, self.manifest)
+        if not refs:
+            return
+        stamps = []
+        for ref in refs:
+            path = Path(ref[5:]).expanduser() if ref.startswith("file:") else None
+            stamps.append((ref, path.stat().st_mtime_ns if path and path.exists() else None))
+        key = tuple(stamps)
+        now = time.monotonic()
+        if self._anchor_state and self._anchor_state[0] == key \
+                and now - self._anchor_state[1] < _ANCHOR_RECHECK:
+            return
+        report = anchors.check(self.ledger, self.workdir, manifest=self.manifest, refs=refs)
+        if not report["ok"]:
+            raise PermissionError(
+                f"refusing to run {self.manifest.agent} {self.manifest.version}: the evidence "
+                f"chain does not match its anchors ({'; '.join(report['problems'])}).")
+        self._anchor_state = (key, now)
 
     def _check_signed(self) -> None:
-        """Outside the shadow channel the agent runs only a manifest whose
-        signature verifies, so an edit after release stops it rather than
-        running unrecorded."""
+        """Outside the shadow channel the agent runs only the latest release
+        on its evidence chain: the manifest must be that release (version and
+        content), its signature must verify against the key the chain
+        recorded, the chain must match its anchors, and where approvers are
+        registered the release must carry their valid signatures. An edit, a
+        re-signed or renamed manifest, a restored older release or a chain
+        rewritten behind its anchors stops the run instead of running
+        unrecorded."""
+        self._sync_manifest()
         channel = self.manifest.release.get("channel", "shadow")
         if channel == "shadow":
             return
-        key = self.signer.public_key_hex() if self.signer.has_key else None
+        name = f"{self.manifest.agent} {self.manifest.version}"
+        self._check_chain()
+        self._check_anchors()
+        governing = self._governing_envelopes()
+        latest = self._latest_release()
+        body = (latest or {}).get("body", {})
+        recorded_key = body.get("signer_public_key")
+        if recorded_key and self.signer.has_key and recorded_key != self.signer.public_key_hex():
+            raise PermissionError(
+                f"refusing to run {name}: its latest release names a signing key this "
+                f"workspace does not hold.")
+        key = recorded_key or (self.signer.public_key_hex() if self.signer.has_key else None)
         if not verify_manifest_signature(self.manifest, key):
             raise PermissionError(
-                f"refusing to run {self.manifest.agent} {self.manifest.version}: it is on "
-                f"the {channel} channel but its manifest signature does not verify. "
-                f"Release a new version, or return to the shadow channel.")
+                f"refusing to run {name}: it is on the {channel} channel but its manifest "
+                f"signature does not verify. Release a new version, or return to the "
+                f"shadow channel.")
+        report = verify_envelopes(governing)
+        if latest is None:
+            if report["signing_required"] or any(
+                    e["kind"] == "brevet.release" for e in governing):
+                raise PermissionError(
+                    f"refusing to run {name}: the evidence chain has no release of "
+                    f"{self.manifest.agent}.")
+            return
+        if not self._is_release(self.manifest, body):
+            raise PermissionError(
+                f"refusing to run {name}: the evidence chain's latest release is "
+                f"{body.get('to_version')}, and this manifest is not it. To change or roll "
+                f"back the agent, release a new version.")
+        if latest.get("envelope_id") in {i["envelope_id"] for i in report["invalid"]}:
+            raise PermissionError(
+                f"refusing to run {name}: its release carries invalid approval signatures; "
+                f"run brevet verify.")
+        if report["signing_required"] and not body.get("approval"):
+            raise PermissionError(
+                f"refusing to run {name}: this workspace requires signed approvals, and "
+                f"its latest release does not carry approver signatures.")
+        if not releases.archived(self.workdir, body.get("to_version")):
+            releases.ensure_archive(self.workdir, self.manifest, self._released_lock(),
+                                    self.manifest_path, body)
+
+    def harness_inventory(self) -> tuple[list, list[str]]:
+        """The harness this agent runs with: declared files, the live agent's
+        components and library versions (digests only)."""
+        return inventory(self.manifest, self.manifest_path, adapter=self.adapter,
+                         workdir=self.workdir)
+
+    def _lock_path(self) -> Path:
+        """Beside the manifest, or in the working directory for a manifest
+        given as an object."""
+        return releases.lock_path_for(self.workdir, self.manifest_path)
+
+    def _released_lock(self):
+        return load_lock(self._lock_path())
+
+    def harness_drift(self) -> list[dict[str, str]]:
+        """Components that changed since the release this agent runs."""
+        lock = self._released_lock()
+        if lock is None or not lock.harness_sources:
+            return []
+        live, _ = inventory(self.manifest, self.manifest_path, adapter=self.adapter,
+                            workdir=self.workdir, sources=lock.harness_sources)
+        return compare(lock.harness, live)
+
+    def _check_harness(self, *, block: bool = True) -> None:
+        """Record any drift from the released harness once, and outside the
+        shadow channel refuse to run with an unreleased file or agent change,
+        or with a lock that is not the one the signed release names."""
+        channel = self.manifest.release.get("channel", "shadow")
+        signed_digest = (self.manifest.release or {}).get("lockfile_hash")
+        if block and channel != "shadow" and signed_digest:
+            lock = self._released_lock()
+            if lock is None or lock_digest(lock) != signed_digest:
+                raise PermissionError(
+                    f"refusing to run {self.manifest.agent} {self.manifest.version}: its "
+                    f"capabilities.lock is missing or is not the lock its signed release "
+                    f"names.")
+        changes = self.harness_drift()
+        if not changes:
+            return
+        digest = drift_digest(changes)
+        if digest not in self._drift_recorded:
+            seen = any(e["body"].get("drift_digest") == digest
+                       for e in self.ledger.read("brevet.drift"))
+            if not seen:
+                self.ledger.append("brevet.drift", {
+                    "agent": self.manifest.agent, "release": self.manifest.version,
+                    "changes": changes, "drift_digest": digest})
+            self._drift_recorded.add(digest)
+        stops = blocking(changes, self.manifest)
+        if block and channel != "shadow" and stops:
+            names = ", ".join(f"{c['component_id']} ({c['change']})" for c in stops[:5])
+            raise PermissionError(
+                f"refusing to run {self.manifest.agent} {self.manifest.version}: its harness "
+                f"changed since that release ({names}). Release a new version to ship the "
+                f"change, or undo it.")
+
+    # ------------------------------------------------------------ serving
+
+    def _capabilities(self) -> dict[str, CapabilityObject]:
+        path = self.store.path
+        stamp = (path.stat().st_mtime_ns, path.stat().st_size) if path.exists() else (0, 0)
+        if self._caps is None or self._caps[0] != stamp:
+            self._caps = (stamp, self.store.all())
+        return self._caps[1]
+
+    def _serve_mode(self) -> str:
+        mode = (self.manifest.runtime_safety or {}).get("serve_rules", "context")
+        return mode if mode in SERVE_MODES else "context"
+
+    def _rules_reach_agent(self) -> bool:
+        mode = self._serve_mode()
+        return mode == "prompt" or (mode == "context" and self.adapter.takes_context())
+
+    def _facts(self) -> dict[str, Any]:
+        governing = self._governing_envelopes()
+        invalid = {i["envelope_id"] for i in verify_envelopes(governing)["invalid"]}
+        return chain_facts_from(governing, invalid)
+
+    def rules(self, *, task_family: str | None = None,
+              lock: CapabilitiesLock | None = None, task: str | None = None,
+              context: dict[str, Any] | None = None) -> dict[str, list]:
+        """The governed rules this agent receives for a task, sorted from the
+        ones recalled, withheld, out of their validity window or not
+        applicable (see ``brevet.serving.resolve``). Each rule's conditions
+        are matched against the task's family, its text and the condition
+        fields in ``context`` (role, risk_class, environment, domain, ...)."""
+        lock = lock if lock is not None else self._released_lock()
+        if lock is None:
+            return {"rules": [], "recalled": [], "withheld": [], "expired": [],
+                    "not_applicable": []}
+        runtime = ApplicabilityContext.of_task(task, task_family, context)
+        return resolve(lock, self._capabilities(), self._facts(), context=runtime)
+
+    def _recalls_to_acknowledge(self, lock: CapabilitiesLock | None) -> list[tuple[dict, bool]]:
+        """Valid recalls this agent has not yet acknowledged, each with
+        whether its current release still ships the capability."""
+        facts = self._facts()
+        agent = self.manifest.agent
+        ids = {r.capability_id for r in lock.resolved} if lock else set()
+        hashes = {r.content_hash for r in lock.resolved} if lock else set()
+        seen, out = set(), []
+        for recall in facts["recalls"].values():
+            rid = recall.get("recall_id")
+            if rid in seen or is_acknowledged(facts["acks"], rid, agent, "wrapped"):
+                continue
+            seen.add(rid)
+            shipped = recall.get("capability_id") in ids or (
+                reaches_content(recall) and recall.get("content_hash") in hashes)
+            ours = any(a.get("agent") == agent for a in recall.get("affected_releases") or [])
+            if shipped or ours:
+                out.append((recall, shipped))
+        return out
+
+    # ------------------------------------------------------------ running
 
     def run(self, task: str, *, task_family: str | None = None,
             context: dict[str, Any] | None = None) -> RunResult:
         self._check_signed()
-        task_id = self.ledger.append("brevet.task", {
+        self._check_harness()
+        lock = self._released_lock()
+        reach = self._rules_reach_agent()
+        pending = self._recalls_to_acknowledge(lock)
+        shipped = [r for r, in_lock in pending if in_lock]
+        if shipped and not reach and self.manifest.release.get("channel", "shadow") != "shadow":
+            names = ", ".join(r.get("capability_id", "?") for r in shipped[:5])
+            raise PermissionError(
+                f"refusing to run {self.manifest.agent} {self.manifest.version}: it ships "
+                f"recalled capabilities ({names}) and does not take its rules from Brevet, "
+                f"so Brevet cannot withhold them. Release a version without them (brevet "
+                f"release or brevet rollback), or serve rules through Brevet "
+                f"(runtime_safety.serve_rules).")
+        served = (self.rules(task_family=task_family, lock=lock, task=task,
+                             context=context)["rules"] if reach else None)
+        result = self._invoke(task, task_family=task_family, context=context, rules=served)
+        version = self.manifest.version
+        for recall, in_lock in pending:
+            if in_lock and not reach:
+                continue  # shadow: nothing was withheld, so nothing is confirmed
+            how = (f"withheld from the rules served with task {result.task_id}" if in_lock
+                   else f"release {version} leaves it out")
+            acknowledge(self.ledger, recall, agent=self.manifest.agent, release=version,
+                        serving_point="wrapped", how=how, task_id=result.task_id)
+        return result
+
+    def _evaluation_run(self, task: str, *, task_family: str | None = None) -> RunResult:
+        """A run for ``agent.evaluate()``. Evaluating an unreleased change is
+        how it earns a release, so drift is recorded but stops nothing, the
+        agent receives the rules of the set being evaluated, and the task is
+        marked as an evaluation on the evidence chain."""
+        self._check_harness(block=False)
+        served = None
+        if self._rules_reach_agent() and self._eval_lock is not None:
+            served = self.rules(task_family=task_family, lock=self._eval_lock, task=task)["rules"]
+        return self._invoke(task, task_family=task_family, context=None, rules=served,
+                            evaluation=True)
+
+    def _invoke(self, task: str, *, task_family: str | None,
+                context: dict[str, Any] | None, rules: list[dict] | None = None,
+                evaluation: bool = False) -> RunResult:
+        self._guard_tools()
+        record: dict[str, Any] = {
             "task": task, "task_family": task_family,
             "agent": self.manifest.agent, "agent_version": self.manifest.version,
             "channel": self.manifest.release.get("channel", "shadow"),
-        })
+        }
+        if evaluation:
+            record["evaluation"] = True
+        if rules is not None:
+            record["served_rules"] = [r["capability_id"] for r in rules]
+        task_id = self.ledger.append("brevet.task", record)
         ctx = {"task_id": task_id, **(context or {})}
-        output, trace = self.adapter.invoke(task, ctx)
+        prompt = task
+        if rules is not None:
+            ctx["brevet"] = {"release": self.manifest.version, "rules": rules}
+            if self._serve_mode() == "prompt" and rules:
+                prompt = f"{rules_text(rules, self.manifest.version)}\n\nTask:\n{task}"
+        token = self.broker.begin(task_id)
+        try:
+            output, trace = self.adapter.invoke(prompt, ctx)
+        finally:
+            self.broker.end(task_id, token)
         artefact_ref = self.ledger.append("brevet.artefact", {
             "task_id": task_id, "output": output,
             "trace_len": len(trace), "trace": trace[-50:],
         }, refs=[task_id])
         self._drafts[task_id] = output
         self._families[task_id] = task_family or "default"
-        return RunResult(task_id, output, trace, artefact_ref)
+        return RunResult(task_id, output, trace, artefact_ref,
+                         [r["capability_id"] for r in rules or []])
 
     def record_final(self, task_id: str, final: str, *,
                      participant: str = "human:unknown", rationale: str = "",
@@ -170,16 +560,32 @@ class BrevetAgent:
         self.ledger.append("brevet.override", override.model_dump(), refs=[task_id])
         return override
 
-    # ---------------------------------------------------------- sleeping
+    # ------------------------------------------------------------ dream
 
     def dream(self) -> dict[str, int]:
         """Offline cycle: mine ``enacted ⊖ specified`` into Evidence-layer
-        candidates and compile the override-derived eval cases. Only what is
-        new is added, so the cycle can run every night."""
+        candidates and compile the override-derived eval cases, from the
+        overrides of participants who consented. Only what is new is added,
+        so the cycle can run every night."""
         model_family = (self.manifest.cognitive_core.get("model_policy", {})
                         .get("local_default", "").split(":")[1:2] or [None])[0]
         return dream_cycle(self.ledger, self.store, model_family=model_family,
-                           assist=self.assist)
+                           assist=self.assist,
+                           consent=consent_mod.allowed(self.manifest, self.ledger))
+
+    def withdraw_consent(self, participant: str, *, issued_by: str,
+                         reason: str = "") -> dict[str, Any]:
+        """A participant withdraws consent: their overrides stop counting and
+        every capability built on them is recalled."""
+        out = consent_mod.record_withdrawal(self.ledger, self.store, participant,
+                                            issued_by=issued_by, reason=reason)
+        out["recalled"] = []
+        for cap_id in out["derived"]:
+            notice = self.recall(cap_id, reason=f"consent withdrawn by {out['participant']}",
+                                 issued_by=issued_by, reason_class="consent_withdrawn",
+                                 action="quarantine")
+            out["recalled"].append(notice.recall_id)
+        return out
 
     # -------------------------------------------------------------- dawn
 
@@ -203,44 +609,107 @@ class BrevetAgent:
 
     # ----------------------------------------------------------- release
 
-    def evaluate(self, *, scorer: Any = None) -> dict[str, Any]:
-        """Execute the compiled regression suite against the current agent."""
+    def evaluate(self, *, scorer: Any = None, baseline: bool = False) -> dict[str, Any]:
+        """Run the override-compiled eval cases. By default the agent is given
+        the capabilities the next release would lock (the 'after' run); with
+        ``baseline=True``, those of the current release (the 'before' run).
+        The run records what it evaluated, so a release can be bound to it."""
         from brevet.runner import EvalRunner
-        return EvalRunner(self, scorer=scorer).run()
+        self._sync_manifest()
+        harness = self.harness_inventory()
+        if baseline:
+            lock = self._released_lock() or CapabilitiesLock(
+                agent=self.manifest.agent, agent_version=self.manifest.version)
+        else:
+            lock = build_lock(self.manifest, self.store, harness, ledger=self.ledger)
+        meta = {"agent": self.manifest.agent, "agent_version": self.manifest.version,
+                "baseline": baseline,
+                "capability_set": capability_set_digest(lock.resolved),
+                "capabilities": [r.capability_id for r in lock.resolved],
+                "harness": harness_digests(harness[0], harness[1]),
+                "harness_sources": sorted(harness[1]),
+                "manifest_core": manifest_core(self.manifest)}
+        self._eval_lock = lock
+        try:
+            return EvalRunner(self, scorer=scorer).run(meta)
+        finally:
+            self._eval_lock = None
+
+    def _fresh_manifest(self) -> None:
+        if self.manifest_path and self.manifest_path.exists():
+            fresh = self._read_manifest_file()
+            if fresh is None:
+                raise ValueError(f"cannot read {self.manifest_path}; fix it, then release")
+            self.manifest = fresh
 
     def release(self, *, to_version: str, channel: str = "shadow",
-                approver: str, delta_in: float = 0.0, delta_out: float = 0.0,
+                approver: str, evals: tuple[Any, Any] | None = None,
+                delta_in: float | None = None, delta_out: float | None = None,
                 rationale: str = "",
                 approval: dict[str, Any] | None = None) -> ReleaseRecord:
-        self.manifest, lock, record = _release(
+        """Release agent.yaml as it is on disk (or the manifest object this
+        agent was given), with the capabilities promoted so far and the
+        harness it runs with now.
+
+        ``evals=(before, after)`` binds the release to two eval runs (from
+        ``evaluate(baseline=True)`` and ``evaluate()``), and the gate's deltas
+        come from them. Without runs, ``delta_in`` and ``delta_out`` are
+        recorded as attested by the approver."""
+        self._fresh_manifest()
+        harness = self.harness_inventory()
+        summary = releases.evidence(self.ledger, self.store, self.manifest, harness,
+                                    to_version=to_version, approver=approver,
+                                    previous_lock=self._released_lock(), evals=evals,
+                                    delta_in=delta_in, delta_out=delta_out)
+        manifest, lock, record = _release(
             self.manifest, self.store, self.ledger, self.signer,
             to_version=to_version, channel=ReleaseChannel(channel), approver=approver,
-            eval_summary={"delta_held_in": delta_in, "delta_held_out": delta_out,
-                          "gate": "conservative"},
-            rationale=rationale, approval=approval,
-        )
-        if self.manifest_path:
-            self.manifest_path.write_text(yaml.safe_dump(
-                self.manifest.model_dump(exclude_none=False), sort_keys=False),
-                encoding="utf-8")
-            (self.manifest_path.parent / "capabilities.lock").write_text(
-                lock.model_dump_json(indent=2), encoding="utf-8")
+            eval_summary=summary, rationale=rationale, approval=approval, harness=harness)
+        self.manifest = manifest
+        releases.publish(self.workdir, manifest, lock, self.manifest_path)
+        return record
+
+    def rollback(self, to_version: str, *, approver: str, as_version: str | None = None,
+                 channel: str | None = None, rationale: str = "",
+                 approval: dict[str, Any] | None = None,
+                 remove_added: bool = False) -> ReleaseRecord:
+        """Return the agent to an earlier release, as a new signed release:
+        its manifest and harness files come back, its capabilities minus any
+        recalled since. The agent's own code is restored from version
+        control; until it matches, the drift check stops runs outside
+        shadow."""
+        self._fresh_manifest()
+        manifest, _lock, record, _plan = releases.rollback(
+            self.workdir, self.ledger, self.store, self.signer, self.manifest_path,
+            self.manifest, target=to_version, approver=approver, as_version=as_version,
+            channel=channel, rationale=rationale, approval=approval,
+            remove_added=remove_added)
+        self.manifest = manifest
         return record
 
     def recall(self, capability_id: str, *, reason: str, issued_by: str,
                reason_class: str = "incorrect", severity: str = "high",
                action: str = "rollback",
                approval: dict[str, Any] | None = None) -> RecallNotice:
-        releases = [ReleaseRecord(**e["body"]) for e in self.ledger.read("brevet.release")]
+        releases_ = [ReleaseRecord(**e["body"]) for e in self.ledger.read("brevet.release")]
         return _recall(self.store, self.ledger, capability_id, reason=reason,
                        reason_class=reason_class, severity=severity,
-                       issued_by=issued_by, releases=releases, action=action,
+                       issued_by=issued_by, releases=releases_, action=action,
                        approval=approval)
 
     # ------------------------------------------------------------- audit
 
     def verify(self) -> tuple[bool, int]:
-        return self.ledger.verify()
+        """Replay the chain; a chain that no longer holds its anchored heads
+        counts as broken."""
+        ok, n = self.ledger.verify()
+        if ok and anchors.configured(self.workdir, self.manifest):
+            ok = anchors.check(self.ledger, self.workdir, manifest=self.manifest)["ok"]
+        return ok, n
+
+    def anchor(self) -> dict[str, Any]:
+        """Write the chain's head to its anchors now."""
+        return anchors.anchor(self.ledger, self.workdir, manifest=self.manifest)
 
     def status(self) -> dict[str, Any]:
         caps = self.store.all().values()
@@ -251,7 +720,7 @@ class BrevetAgent:
                 by_layer[c.authority_layer.value] = by_layer.get(c.authority_layer.value, 0) + 1
             else:
                 revoked += 1
-        ok, n = self.ledger.verify()
+        ok, n = self.verify()
         return {
             "agent": self.manifest.agent,
             "version": self.manifest.version,
@@ -261,6 +730,9 @@ class BrevetAgent:
             "capabilities": by_layer,
             "revoked": revoked,
             "pending_dawn": len(self.store.pending()),
+            "rules_served": self._serve_mode() if self._rules_reach_agent() else "none",
+            "tools_guarded": list(self.broker.guarded),
+            "anchors": anchors.configured(self.workdir, self.manifest),
             "envelopes": n,
             "chain_ok": ok,
         }
@@ -272,9 +744,12 @@ BrevetShell = BrevetAgent
 
 def wrap(target: Any, *, manifest: str | Path | AgentManifest | None = None,
          adapter: str | None = None, workdir: str | Path = ".brevet",
-         assist: ModelAssist | None = None) -> BrevetAgent:
+         assist: ModelAssist | None = None,
+         grantor: Callable[[str, dict[str, Any]], str | None] | None = None) -> BrevetAgent:
     """Wrap any agent. Zero config required: if no manifest exists, a
-    signature-conformant one is generated and persisted to <workdir>/agent.yaml."""
+    signature-conformant one is generated and persisted to <workdir>/agent.yaml.
+    ``grantor`` is asked to grant each controlled_act tool call (see
+    ``brevet.broker``)."""
     workdir = Path(workdir)
     manifest_path: Path | None = None
 
@@ -292,4 +767,4 @@ def wrap(target: Any, *, manifest: str | Path | AgentManifest | None = None,
 
     adapter_name = adapter or detect(target)
     return BrevetAgent(get_adapter(adapter_name)(target), m, workdir,
-                       manifest_path=manifest_path, assist=assist)
+                       manifest_path=manifest_path, assist=assist, grantor=grantor)

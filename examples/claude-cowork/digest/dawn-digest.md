@@ -43,13 +43,16 @@ Run these steps in order.
    e. If any step here fails, note it in one line and continue. A relay
       problem must never block the digest.
 
-3. Call `brevet_dream` to mine newly recorded overrides into candidates.
+3. Call `brevet_dream` to mine newly recorded overrides into candidates,
+   then `brevet_anchor` to anchor the week's evidence outside the
+   workspace (skip silently if no anchor is configured).
 
 4. Call `brevet_dawn_pending` and `brevet_status`.
 
 5. Write a short digest: chain health, envelope count, CHAP relay
-   result, then each pending candidate on one line (capability id,
-   title, recurrence). If the queue is empty, say so in one sentence.
+   result, open recalls (`recalls_open`), then each pending candidate on
+   one line (capability id, title, recurrence). If the queue is empty, say
+   so in one sentence.
 
 6. Close by showing the exact decision phrasing, for example:
    "promote cap_xxx as mission_group:<your group>" or "reject cap_xxx".

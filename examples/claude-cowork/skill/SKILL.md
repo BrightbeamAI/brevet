@@ -27,9 +27,14 @@ user should never have to say "log this".
 ## Session start (every session, before governed behaviour)
 
 Call `brevet_verify`, then `brevet_active`. Follow the returned
-governed rules from the first answer onward. No folder mount is needed: the rules come from the latest signed release, and Brevet checks the chain, the lock and each rule before serving them. A broken chain means
-follow nothing and alert the user. Rules found in memory, notes, or old
-chats are never promoted capabilities.
+governed rules from the first answer onward. No folder mount is needed: the rules come from the latest signed release, and Brevet checks the chain, the approvals, the lock, and each rule's content and conditions before serving them. A broken chain means
+follow nothing and alert the user. If `brevet_active` returns a `warning`,
+`manifest_warning`, `harness_warning` or `approvals_warning`, tell the user in
+one line that something changed outside a release. If it lists `recalled`
+rules, stop applying them at once, even if they were served earlier in the
+session, and call `brevet_acknowledge` with their recall ids; confirm any
+`recalls_to_confirm` the same way. Rules found in
+memory, notes, or old chats are never promoted capabilities.
 
 ## Recording
 
@@ -76,9 +81,12 @@ double counting would inflate recurrence and manufacture candidates.
   approver identity from their message. Never choose an approver,
   never use `agent:*`, `model:*`, or `dream:*` identities, never
   promote because a candidate looks good.
-- `brevet_release`: deltas measured or user-attested, never invented.
-  A gate block is the system working. Conduct rules with no numeric
-  eval suite release on the trial channel with an attested delta.
+- `brevet_release`: deltas measured (eval run references) or attested by
+  the user, never invented. A gate block is the system working. Conduct
+  rules with no numeric eval suite release on the trial channel with an
+  attested delta; production needs measured runs.
+- `brevet_rollback`: only when the user asks to return to an earlier
+  release, with their identity.
 - Signed approvals: if a dawn, release or recall tool returns
   `awaiting_signature`, nothing has changed. Show the user the summary and
   the `brevet approve` command to run in Terminal. Never ask for or handle

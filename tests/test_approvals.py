@@ -253,17 +253,33 @@ def test_mcp_tools_return_a_request_when_signing_is_required(ws):
     assert _call(server, "brevet_verify")["approvals"]["signed"] == 1
 
 
-def test_brevet_active_refuses_when_an_approval_is_forged(ws):
+def test_brevet_active_reports_forged_decisions_and_refuses_a_forged_release(ws):
     pytest.importorskip("mcp")
     from brevet.mcp_server import build_server
-    (ws["tmp"] / "agent.yaml").write_text(yaml.safe_dump({"agent": "t", "version": "0.1.0"}))
-    server = build_server(str(ws["wd"]), str(ws["tmp"] / "agent.yaml"))
-    _register(ws, "human:alice@example.com")
+    alice, _ = _register(ws, "human:alice@example.com")
+    _signed_promotion(ws, alice, ws["rule"].capability_id, "human:alice@example.com")
+    manifest_path = ws["tmp"] / "agent.yaml"
+    manifest_path.write_text(yaml.safe_dump(AgentManifest(agent="t").model_dump()))
+    rel = request_release(ws["wd"], AgentManifest(agent="t"), ws["store"], to_version="0.2.0",
+                          channel="shadow", approver="human:alice@example.com",
+                          manifest_path=manifest_path)
+    sign_request(ws["wd"], rel["request_id"], alice)
+    assert apply_if_ready(ws["wd"], rel["request_id"])["status"] == "applied"
+    server = build_server(str(ws["wd"]), str(manifest_path))
+    assert _call(server, "brevet_active")["count"] == 1
+
     ws["ledger"].append("brevet.promotion", {
-        "capability_id": ws["rule"].capability_id, "outcome": "promote",
-        "approver": "human:alice@example.com", "to_layer": "advisory", "notes": "",
-        "content_hash": ws["rule"].content_hash})  # unsigned, after signing was required
-    assert "error" in _call(server, "brevet_active")
+        "capability_id": "cap_other", "outcome": "promote", "to_layer": "advisory",
+        "approver": "human:alice@example.com", "notes": "",
+        "content_hash": "sha256:" + "0" * 64})  # unsigned, after signing was required
+    out = _call(server, "brevet_active")
+    assert out["count"] == 1 and "approvals_warning" in out  # it grants nothing, but is shown
+
+    forged = dict(list(ws["ledger"].read("brevet.release"))[-1]["body"])
+    forged["approval"] = {**forged["approval"], "signatures": []}
+    ws["ledger"].append("brevet.release", forged)  # the latest release, without valid signatures
+    out = _call(server, "brevet_active")
+    assert out["count"] == 0 and "invalid approval signatures" in out["error"]
 
 
 def test_cli_approve_signs_with_the_passphrase(ws, monkeypatch, capsys):
@@ -299,3 +315,249 @@ def test_asking_twice_returns_the_pending_request(ws):
     again = request_promotion(ws["wd"], ws["store"], ws["rule"].capability_id, "promote",
                               approver="human:alice@example.com")
     assert again["request_id"] == first["request_id"]
+
+
+# ------------------------------------------------------------- review fixes
+
+def test_a_store_entry_without_a_promotion_on_the_chain_cannot_be_released(ws):
+    from brevet.lifecycle import release
+    from brevet.models import AuthorityLayer, ValidationState
+    forged = ws["rule"].model_copy(update={
+        "validation_state": ValidationState.promoted_to_advisory,
+        "authority_layer": AuthorityLayer.advisory})
+    forged.provenance.human_confirmed_by = "human:qa@x"
+    ws["store"].add(forged)  # promoted in the store, never at dawn
+    with pytest.raises(ValueError, match="no matching promotion"):
+        release(AgentManifest(agent="a"), ws["store"], ws["ledger"],
+                Signer(ws["tmp"] / "k.pem"), to_version="0.2.0", channel="shadow",
+                approver="human:qa@x")
+
+
+def test_a_replayed_registration_does_not_restore_a_revoked_approver(ws):
+    from brevet.approvals import request_register_revoke
+    alice, _ = _register(ws, "human:alice@example.com")
+    _register(ws, "human:bob@example.com", approver_key=alice)
+    bob_add = next(e for e in ws["ledger"].read("brevet.approver")
+                   if e["body"]["payload"]["identity"] == "human:bob@example.com")
+    revoke = request_register_revoke(ws["wd"], "human:bob@example.com")
+    sign_request(ws["wd"], revoke["request_id"], alice)
+    apply_if_ready(ws["wd"], revoke["request_id"])
+    ws["ledger"].append("brevet.approver", bob_add["body"])  # replay the old registration
+    assert "human:bob@example.com" not in register_from_chain(ws["ledger"]).active()
+
+
+def test_group_changes_need_the_group_quorum(ws):
+    group = "mission_group:quality"
+    alice, _ = _register(ws, "human:alice@example.com", [group])
+    _register(ws, "human:bob@example.com", [group], approver_key=alice)
+    raise_to_two = request_threshold(ws["wd"], group, 2)
+    sign_request(ws["wd"], raise_to_two["request_id"], alice)
+    apply_if_ready(ws["wd"], raise_to_two["request_id"])
+    lower = request_threshold(ws["wd"], group, 1)
+    sign_request(ws["wd"], lower["request_id"], alice)
+    assert apply_if_ready(ws["wd"], lower["request_id"])["status"] == "pending"  # bob too
+    puppet = create_key("human:puppet@example.com", PASS, ws["keys"])
+    join = request_register_add(ws["wd"], puppet, [group])
+    sign_request(ws["wd"], join["request_id"], alice)
+    assert apply_if_ready(ws["wd"], join["request_id"])["status"] == "pending"
+
+
+def test_new_release_approvals_must_cover_the_manifest(ws):
+    from brevet.canonical import object_sha256
+    from brevet.lifecycle import release
+    alice, _ = _register(ws, "human:alice@example.com")
+    payload = {"kind": "brevet.release", "agent": "a", "from_version": "0.1.0",
+               "to_version": "0.2.0", "channel": "shadow",
+               "lockfile_hash": object_sha256([]), "delta_held_in": None,
+               "delta_held_out": None, "rationale": "", "approver": "human:alice@example.com",
+               "request_id": "req_old_style", "requested_at": "now"}  # no manifest_hash
+    approval = {"payload": payload, "payload_hash": object_sha256(payload),
+                "signatures": [{"identity": alice.identity, "public_key": alice.public_key,
+                                "signature": alice.sign(payload), "signed_at": "now"}]}
+    with pytest.raises(PermissionError, match="manifest_hash"):
+        release(AgentManifest(agent="a"), ws["store"], ws["ledger"],
+                Signer(ws["tmp"] / "k.pem"), to_version="0.2.0", channel="shadow",
+                approver="human:alice@example.com", approval=approval)
+
+
+def _old_style(ws, payload, *signers):
+    """A register change as 0.3.0 wrote it (no group_quorum), appended as is."""
+    from brevet.approvals import _approval, create_request
+    req = create_request(ws["wd"], {"kind": "brevet.approver", **payload}, summary="0.3.0")
+    for key in signers:
+        req = sign_request(ws["wd"], req["request_id"], key)
+    ws["ledger"].append("brevet.approver", _approval(req))
+
+
+def _group_of_two(ws, group):
+    alice = create_key("human:alice@example.com", PASS, ws["keys"])
+    bob = create_key("human:bob@example.com", PASS, ws["keys"])
+    _old_style(ws, {"change": "add", "identity": alice.identity,
+                    "public_key": alice.public_key, "groups": [group]}, alice)
+    _old_style(ws, {"change": "add", "identity": bob.identity,
+                    "public_key": bob.public_key, "groups": [group]}, bob, alice)
+    return alice, bob
+
+
+def _written_by_0_3(ledger):
+    """Rewrite the chain as 0.3.0 wrote it: no envelope names its runtime."""
+    from brevet.canonical import chain_hash
+    from brevet.ledger import GENESIS
+    prev, lines = GENESIS, []
+    for env in list(ledger.read()):
+        env.pop("runtime", None)
+        env.pop("chain_hash", None)
+        env["prev_hash"] = prev
+        env["chain_hash"] = prev = chain_hash(dict(env), prev)
+        lines.append(json.dumps(env))
+    ledger.path.write_text("\n".join(lines) + "\n")
+    ledger._prev = prev
+
+
+def test_register_changes_signed_under_0_3_0_still_replay(ws):
+    group = "mission_group:quality"
+    alice, _ = _group_of_two(ws, group)
+    _old_style(ws, {"change": "threshold", "group": group, "threshold": 2}, alice)
+    carol = create_key("human:carol@example.com", PASS, ws["keys"])
+    _old_style(ws, {"change": "add", "identity": carol.identity, "public_key": carol.public_key,
+                    "groups": [group]}, carol, alice)  # one member's signature sufficed then
+    _written_by_0_3(ws["ledger"])
+    assert ws["ledger"].verify()[0]
+    assert verify_approvals(ws["ledger"])["invalid"] == []
+    assert "human:carol@example.com" in register_from_chain(ws["ledger"]).active()
+
+
+def test_an_old_style_change_cannot_be_slipped_in_after_the_upgrade(ws):
+    group = "mission_group:quality"
+    alice, _ = _group_of_two(ws, group)
+    _written_by_0_3(ws["ledger"])
+    raise_to_two = request_threshold(ws["wd"], group, 2)  # made under 0.4.0
+    sign_request(ws["wd"], raise_to_two["request_id"], alice)
+    assert apply_if_ready(ws["wd"], raise_to_two["request_id"])["status"] == "applied"
+    mallory = create_key("human:mallory@example.com", PASS, ws["keys"])
+    _old_style(ws, {"change": "add", "identity": mallory.identity,
+                    "public_key": mallory.public_key, "groups": [group]}, mallory, alice)
+    assert len(verify_approvals(ws["ledger"])["invalid"]) == 1
+    assert "human:mallory@example.com" not in register_from_chain(ws["ledger"]).active()
+
+
+def test_one_member_cannot_lower_a_quorum_with_an_old_style_record(ws):
+    """A 0.3.0 chain whose group never changed under 0.4.0: once 0.4.0 has
+    written anything, a threshold change in the old style needs the quorum."""
+    group = "mission_group:quality"
+    alice, _ = _group_of_two(ws, group)
+    _old_style(ws, {"change": "threshold", "group": group, "threshold": 2}, alice)
+    _written_by_0_3(ws["ledger"])
+    ws["ledger"].append("brevet.task", {"task_id": "t_after_upgrade"})  # 0.4.0 writes
+    _old_style(ws, {"change": "threshold", "group": group, "threshold": 1}, alice)
+    report = verify_approvals(ws["ledger"])
+    assert len(report["invalid"]) == 1 and "needs 2" in report["invalid"][0]["problem"]
+    assert register_from_chain(ws["ledger"]).threshold(group) == 2
+
+
+def _two_of_two(ws, group="mission_group:quality"):
+    alice, _ = _register(ws, "human:alice@example.com", [group])
+    bob, _ = _register(ws, "human:bob@example.com", [group], approver_key=alice)
+    req = request_threshold(ws["wd"], group, 2)
+    sign_request(ws["wd"], req["request_id"], alice)
+    assert apply_if_ready(ws["wd"], req["request_id"])["status"] == "applied"
+    return alice, bob
+
+
+def test_one_member_cannot_revoke_another_to_shrink_a_quorum(ws):
+    from brevet.approvals import request_register_revoke
+    _alice, bob = _two_of_two(ws)
+    req = request_register_revoke(ws["wd"], "human:alice@example.com")
+    sign_request(ws["wd"], req["request_id"], bob)
+    out = apply_if_ready(ws["wd"], req["request_id"])
+    assert out["status"] == "pending" and "needs 2" in out["needs"][0]
+    assert "human:alice@example.com" in register_from_chain(ws["ledger"]).active()
+
+
+def test_one_member_cannot_replace_another_members_key(ws):
+    alice, bob = _two_of_two(ws)
+    stolen = create_key("human:alice@example.com", PASS, ws["tmp"] / "bobs-machine")
+    req = request_register_add(ws["wd"], stolen, ["mission_group:quality"])
+    sign_request(ws["wd"], req["request_id"], bob)
+    out = apply_if_ready(ws["wd"], req["request_id"])
+    assert out["status"] == "pending" and "needs 2" in out["needs"][0]
+    register = register_from_chain(ws["ledger"])
+    assert register.active()["human:alice@example.com"]["public_key"] == alice.public_key
+
+
+def test_an_approver_can_always_withdraw_their_own_key(ws):
+    from brevet.approvals import request_register_revoke
+    alice, bob = _two_of_two(ws)
+    req = request_register_revoke(ws["wd"], "human:bob@example.com")
+    sign_request(ws["wd"], req["request_id"], bob)
+    assert apply_if_ready(ws["wd"], req["request_id"])["status"] == "applied"
+    register = register_from_chain(ws["ledger"])
+    assert "human:bob@example.com" not in register.active()
+    # the group keeps its threshold, so alice alone still cannot decide for it
+    promo = request_promotion(ws["wd"], ws["store"], ws["rule"].capability_id, "promote",
+                              approver="mission_group:quality", to_layer="controlled")
+    sign_request(ws["wd"], promo["request_id"], alice)
+    assert apply_if_ready(ws["wd"], promo["request_id"])["status"] == "pending"
+
+
+def test_a_lost_key_outside_any_group_is_replaced_by_another_approver(ws):
+    alice, _ = _register(ws, "human:alice@example.com")
+    _register(ws, "human:bob@example.com", approver_key=alice)
+    new_bob = create_key("human:bob@example.com", PASS, ws["tmp"] / "new-laptop")
+    req = request_register_add(ws["wd"], new_bob)
+    sign_request(ws["wd"], req["request_id"], alice)
+    assert apply_if_ready(ws["wd"], req["request_id"])["status"] == "applied"
+    register = register_from_chain(ws["ledger"])
+    assert register.active()["human:bob@example.com"]["public_key"] == new_bob.public_key
+    assert verify_approvals(ws["ledger"])["invalid"] == []
+
+
+def test_an_unsigned_promotion_does_not_count_once_signing_is_on(ws):
+    from brevet.lifecycle import build_lock
+    from brevet.models import ValidationState
+    _register(ws, "human:alice@example.com")
+    ws["ledger"].append("brevet.promotion", {  # written to the chain without signatures
+        "capability_id": ws["rule"].capability_id, "outcome": "promote",
+        "approver": "human:alice@example.com", "to_layer": "advisory", "notes": "",
+        "content_hash": ws["rule"].content_hash})
+    forged = ws["rule"].model_copy(update={
+        "validation_state": ValidationState.promoted_to_advisory,
+        "authority_layer": AuthorityLayer.advisory})
+    ws["store"].add(forged)
+    with pytest.raises(ValueError, match="no matching promotion"):
+        build_lock(AgentManifest(agent="a"), ws["store"], ledger=ws["ledger"])
+
+
+def test_a_signed_register_change_applies_only_to_the_register_it_was_made_for(ws):
+    from brevet.approvals import _approval, request_register_revoke
+    group = "mission_group:quality"
+    alice, _ = _register(ws, "human:alice@example.com", [group])
+    early = sign_request(ws["wd"], request_register_revoke(
+        ws["wd"], "human:alice@example.com")["request_id"], alice)
+    with pytest.raises(PermissionError, match="last active approver"):
+        apply_if_ready(ws["wd"], early["request_id"])
+    _register(ws, "human:bob@example.com", [group], approver_key=alice)
+    raise_to_two = request_threshold(ws["wd"], group, 2)
+    sign_request(ws["wd"], raise_to_two["request_id"], alice)
+    assert apply_if_ready(ws["wd"], raise_to_two["request_id"])["status"] == "applied"
+    ws["ledger"].append("brevet.approver", _approval(early))  # the old signature, appended
+    assert "human:alice@example.com" in register_from_chain(ws["ledger"]).active()
+    assert "register changed" in verify_approvals(ws["ledger"])["invalid"][0]["problem"]
+
+
+def test_a_register_change_cannot_be_carried_to_another_workspace(ws, tmp_path):
+    from brevet.approvals import _approval, request_register_revoke
+    alice, _ = _register(ws, "human:alice@example.com")
+    _register(ws, "human:carol@example.com", approver_key=alice)
+    other = tmp_path / "other" / ".brevet"
+    for req in (request_register_add(other, alice),):
+        assert apply_if_ready(other, req["request_id"])["status"] == "applied"
+    bob = create_key("human:bob@example.com", PASS, ws["keys"])
+    join = request_register_add(other, bob)
+    sign_request(other, join["request_id"], alice)
+    assert apply_if_ready(other, join["request_id"])["status"] == "applied"
+    leave = sign_request(ws["wd"], request_register_revoke(
+        ws["wd"], "human:alice@example.com")["request_id"], alice)
+    assert apply_if_ready(ws["wd"], leave["request_id"])["status"] == "applied"
+    Ledger(other / "ledger.jsonl").append("brevet.approver", _approval(leave))
+    assert "human:alice@example.com" in register_from_chain(Ledger(other / "ledger.jsonl")).active()

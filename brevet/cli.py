@@ -13,11 +13,13 @@
     brevet mcp           serve the loop to an MCP client such as Claude Desktop
     brevet approver      register the people whose signatures decisions need
     brevet approve       review and sign pending decisions
+    brevet harness       compare the harness files with the latest release
 """
 
 from __future__ import annotations
 
 import getpass
+import json
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -26,11 +28,17 @@ import typer
 import yaml
 
 from brevet import __version__
+from brevet.anchor import anchor as anchor_head
+from brevet.anchor import check as check_anchors
+from brevet.anchor import configured as configured_anchors
 from brevet.approvals import (
     ApproverKey,
     PendingRequests,
     apply_if_ready,
     create_key,
+    identity_policy,
+    identity_problems,
+    identity_report,
     key_dir,
     load_key,
     local_identities,
@@ -40,17 +48,25 @@ from brevet.approvals import (
     request_register_add,
     request_register_revoke,
     request_release,
+    request_rollback,
     request_threshold,
     sign_request,
+    use_ssh_key,
     verify_approvals,
 )
 from brevet.canonical import Signer
+from brevet.consent import record_withdrawal
 from brevet.delta import dream_cycle
+from brevet.harness import compare, inventory, load_lock, unmatched_patterns
 from brevet.ledger import Ledger
 from brevet.lifecycle import CapabilityStore, dawn_decide
 from brevet.lifecycle import recall as do_recall
 from brevet.lifecycle import release as do_release
 from brevet.models import AgentManifest, AuthorityLayer, ReleaseChannel, ReleaseRecord
+from brevet.recalls import status as recall_status
+from brevet.releases import evidence, publish
+from brevet.releases import rollback as do_rollback
+from brevet.serving import file_drift
 from brevet.workdir import ensure_workdir
 
 app = typer.Typer(add_completion=False, help=__doc__, pretty_exceptions_enable=False)
@@ -58,6 +74,9 @@ approver_app = typer.Typer(no_args_is_help=True, help=(
     "Register the people whose signatures this workspace requires. Once the first "
     "approver is registered, every dawn decision, release and recall must be signed."))
 app.add_typer(approver_app, name="approver")
+consent_app = typer.Typer(no_args_is_help=True, help=(
+    "Consent: stop learning from a participant who withdraws it."))
+app.add_typer(consent_app, name="consent")
 
 
 def _plural(n: int, word: str, plural: str | None = None) -> str:
@@ -226,20 +245,26 @@ def init(agent: str = "my_agent", directory: str = ".",
 @app.command()
 def dream(
     workdir: str = ".brevet",
+    manifest_path: str = "agent.yaml",
     model_family: str = "gemma4",
     assist: str = typer.Option("none", help="model assist: none or ollama (local, drafts only, always logged)"),
     assist_model: str = typer.Option("gemma4:12b"),
 ) -> None:
     """The dream cycle: mine recurring overrides into candidates, with no authority until promoted."""
     from brevet.assist import from_name
+    from brevet.consent import allowed
     ledger, store, _ = _load(ensure_workdir(workdir))
     s = dream_cycle(ledger, store, model_family=model_family,
-                    assist=from_name(assist, assist_model))
+                    assist=from_name(assist, assist_model),
+                    consent=allowed(_manifest_if_any(manifest_path), ledger))
     extra = f" {_plural(s['superseded'], 'older candidate')} superseded." if s["superseded"] else ""
     typer.echo(f"Dream: {_plural(s['overrides'], 'override')} mined into "
                f"{_plural(s['candidates'], 'new candidate')} and "
                f"{_plural(s['eval_cases'], 'new eval case')}, all at the Evidence layer "
                f"(no authority).{extra}")
+    if s.get("without_consent"):
+        typer.echo(f"{_plural(s['without_consent'], 'override')} left out: no consent from "
+                   f"the participant (runtime_safety.dream).")
 
 
 @app.command()
@@ -282,37 +307,101 @@ def release(
     to_version: str = typer.Option(...),
     channel: str = typer.Option("shadow", help="shadow, trial or production"),
     approver: str = typer.Option(..., help="human:<email> or mission_group:<name>"),
-    delta_in: float = typer.Option(0.0, help="held-in eval delta (change in pass rate)"),
-    delta_out: float = typer.Option(0.0, help="held-out eval delta (change in pass rate)"),
+    eval_before: str = typer.Option(None, help="the 'before' eval run (its run_ref; see brevet evals)"),
+    eval_after: str = typer.Option(None, help="the 'after' eval run; the deltas then come from the runs"),
+    delta_in: float = typer.Option(None, help="held-in delta you attest, when there are no eval runs"),
+    delta_out: float = typer.Option(None, help="held-out delta you attest, when there are no eval runs"),
     rationale: str = typer.Option("", help="why this release is being made"),
 ) -> None:
     """Pass the conservative gate, then sign and release the next version with its capabilities.lock."""
     manifest = _read_manifest(manifest_path)
     wd = ensure_workdir(workdir)
     ledger, store, signer = _load(wd)
+    mpath = Path(manifest_path)
+    harness = inventory(manifest, manifest_path, workdir=wd)
+    if bool(eval_before) != bool(eval_after):
+        raise ValueError("give both --eval-before and --eval-after, or neither")
+    summary = evidence(ledger, store, manifest, harness, to_version=to_version,
+                       approver=approver, previous_lock=load_lock(mpath.parent / "capabilities.lock"),
+                       evals=(eval_before, eval_after) if eval_before else None,
+                       delta_in=delta_in, delta_out=delta_out)
     if _signing_required(wd):
         req = request_release(wd, manifest, store, to_version=to_version, channel=channel,
-                              approver=approver,
-                              eval_summary={"delta_held_in": delta_in, "delta_held_out": delta_out,
-                                            "gate": "conservative"},
-                              rationale=rationale, manifest_path=manifest_path)
+                              approver=approver, eval_summary=summary, rationale=rationale,
+                              manifest_path=manifest_path, harness=harness)
+        _warn_unmatched(manifest, manifest_path, wd)
         _request_then_offer(wd, req, prefer=approver.strip())
         return
     manifest, lock, record = do_release(
         manifest, store, ledger, signer,
         to_version=to_version, channel=ReleaseChannel(channel), approver=approver,
-        eval_summary={"delta_held_in": delta_in, "delta_held_out": delta_out,
-                      "gate": "conservative"},
-        rationale=rationale,
+        eval_summary=summary, rationale=rationale, harness=harness,
     )
-    Path(manifest_path).write_text(
-        yaml.safe_dump(manifest.model_dump(exclude_none=False), sort_keys=False),
-        encoding="utf-8")
-    lock_path = Path(manifest_path).parent / "capabilities.lock"
-    lock_path.write_text(lock.model_dump_json(indent=2), encoding="utf-8")
+    publish(wd, manifest, lock, mpath)
+    harness_note = (f" and {_plural(len(lock.harness), 'harness component')}"
+                    if lock.harness else "")
+    source = ("measured by eval runs" if summary["source"] == "measured"
+              else f"deltas attested by {approver}")
     typer.echo(f"Release: {record.from_version} -> {record.to_version} on the {channel} "
-               f"channel, signed; capabilities.lock lists "
-               f"{_plural(len(lock.resolved), 'capability', 'capabilities')}.")
+               f"channel, signed ({source}); capabilities.lock lists "
+               f"{_plural(len(lock.resolved), 'capability', 'capabilities')}{harness_note}.")
+    _warn_unmatched(manifest, manifest_path, wd)
+
+
+@app.command()
+def rollback(
+    to_version: str = typer.Argument(..., help="the earlier release to return to"),
+    manifest_path: str = "agent.yaml",
+    workdir: str = ".brevet",
+    approver: str = typer.Option(..., help="human:<email> or mission_group:<name>"),
+    as_version: str = typer.Option(None, help="version of the new release (default: next patch)"),
+    channel: str = typer.Option(None, help="channel of the new release (default: as before)"),
+    rationale: str = typer.Option("", help="why the agent is rolled back"),
+    remove_added: bool = typer.Option(False, help="set aside harness files added since that release"),
+) -> None:
+    """Return the agent to an earlier release, as a new signed release."""
+    manifest = _read_manifest(manifest_path)
+    wd = _existing(workdir)
+    ledger, store, signer = _load(wd)
+    mpath = Path(manifest_path)
+    if _signing_required(wd):
+        req = request_rollback(wd, manifest, store, target=to_version, approver=approver,
+                               as_version=as_version, channel=channel, rationale=rationale,
+                               remove_added=remove_added, manifest_path=manifest_path)
+        _request_then_offer(wd, req, prefer=approver.strip())
+        return
+    manifest, lock, record, plan = do_rollback(
+        wd, ledger, store, signer, mpath, manifest, target=to_version, approver=approver,
+        as_version=as_version, channel=channel, rationale=rationale,
+        remove_added=remove_added)
+    typer.echo(f"Rollback: {record.from_version} -> {record.to_version} restores release "
+               f"{to_version}; {_plural(len(lock.resolved), 'capability', 'capabilities')} "
+               f"locked, {_plural(len(plan['restored_files']), 'harness file')} restored.")
+    for item in plan["dropped"]:
+        typer.echo(f"  left out {item['capability_id']}: {item['why']}")
+
+
+@app.command()
+def evals(workdir: str = ".brevet") -> None:
+    """List the recorded eval runs, to bind a release to its 'before' and 'after' runs."""
+    ledger, _, _ = _load(_existing(workdir))
+    runs = list(ledger.read("brevet.eval_run"))
+    if not runs:
+        typer.echo("Evals: no runs recorded; run agent.evaluate() in Python.")
+        return
+    for e in runs:
+        b = e["body"]
+        kind = "before (current release)" if b.get("baseline") else "after (candidate)"
+        typer.echo(f"  {e['envelope_id']}  {e.get('created_at', '')[:19]}  {kind}  "
+                   f"held-in {b.get('held_in_pass_rate', 0):.2f}  "
+                   f"held-out {b.get('held_out_pass_rate', 0):.2f}  {b.get('n_cases', 0)} cases")
+
+
+def _warn_unmatched(manifest: AgentManifest, manifest_path: str, wd: Path) -> None:
+    missing = unmatched_patterns(manifest, manifest_path, workdir=wd)
+    if missing:
+        typer.echo(f"Warning: these bindings.harness_files patterns match no file, so nothing "
+                   f"they name is under change control: {', '.join(missing)}")
 
 
 @app.command()
@@ -320,7 +409,7 @@ def recall(
     capability_id: str,
     workdir: str = ".brevet",
     reason: str = typer.Option(...),
-    reason_class: str = typer.Option("incorrect", help="incorrect, unsafe, consent_withdrawn, superseded, stale, compliance or other"),
+    reason_class: str = typer.Option("incorrect", help="incorrect, unsafe, consent_withdrawn, superseded, stale, compliance, duplicate (one copy of content another capability keeps) or other"),
     severity: str = typer.Option("high", help="low, medium, high or critical"),
     action: str = typer.Option("rollback", help="what affected releases should do: quarantine, rollback or re_review"),
     issued_by: str = typer.Option(..., help="human:<email> or mission_group:<name>"),
@@ -342,16 +431,32 @@ def recall(
                f"flagged for {notice.action}.")
 
 
+def _manifest_if_any(manifest_path: str) -> AgentManifest | None:
+    return _read_manifest(manifest_path) if Path(manifest_path).exists() else None
+
+
 @app.command()
-def verify(workdir: str = ".brevet") -> None:
-    """Replay the hash-linked evidence chain to detect edits."""
-    ledger, _, _ = _load(_existing(workdir))
+def verify(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
+    """Replay the evidence chain, check it against its anchors and check every approval."""
+    wd = _existing(workdir)
+    ledger, _, _ = _load(wd)
     ok, n = ledger.verify()
     if ok:
         typer.echo(f"Verify: evidence chain intact ({n} envelopes).")
     else:
         typer.echo(f"Verify: evidence chain BROKEN at envelope {n + 1}; "
                    f"the {n} envelopes before it are intact.")
+    anchored = check_anchors(ledger, wd, manifest=_manifest_if_any(manifest_path))
+    if anchored["configured"]:
+        for t in anchored["targets"]:
+            state = (f"{t.get('anchors', 0)} head(s), latest at envelope {t.get('latest', 0)}"
+                     if t.get("reachable") else "unreachable")
+            typer.echo(f"Anchor {t['ref']}: {state}")
+        for problem in anchored["problems"]:
+            typer.echo(f"  {problem}")
+        if anchored.get("unanchored"):
+            typer.echo(f"  {anchored['unanchored']} governing step(s) since the last anchor; "
+                       f"brevet anchor writes the current head")
     report = verify_approvals(ledger)
     if report["signing_required"] or report["register_changes"] or report["invalid"]:
         typer.echo(f"Approvals: {report['signed']} signed, "
@@ -359,7 +464,66 @@ def verify(workdir: str = ".brevet") -> None:
                    f"{len(report['invalid'])} invalid.")
         for item in report["invalid"]:
             typer.echo(f"  {item['kind']} {item['envelope_id']}: {item['problem']}")
-    raise typer.Exit(0 if ok and not report["invalid"] else 1)
+    unverified = []
+    if report["signing_required"] and ok and anchored["ok"]:
+        try:
+            policy = identity_policy(wd, manifest_path if Path(manifest_path).exists() else None)
+        except PermissionError as e:
+            policy = {}
+            typer.echo(f"Approver identities: not checked ({e}).")
+        if policy:
+            ident = identity_report(register_from_chain(ledger), policy)
+            unverified = ident["unverified"]
+            checked = ident["approvers"] - len({i["identity"] for i in unverified + ident["unchecked"]})
+            typer.echo(f"Approver identities: {checked} of {ident['approvers']} verified "
+                       f"against the identity source.")
+            for item in unverified + ident["unchecked"]:
+                typer.echo(f"  {item['identity']}: {item['problem']}")
+    raise typer.Exit(0 if ok and anchored["ok"] and not report["invalid"] and not unverified
+                     else 1)
+
+
+@app.command()
+def anchor(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
+    """Write the evidence chain's head to its anchors outside the workspace."""
+    wd = _existing(workdir)
+    ledger, _, _ = _load(wd)
+    out = anchor_head(ledger, wd, manifest=_manifest_if_any(manifest_path))
+    if not out["targets"]:
+        typer.echo(f"Anchor: {out.get('note', 'nothing to anchor')}. Add references under "
+                   f"runtime_safety.evidence.anchors, in BREVET_ANCHORS or in "
+                   f"~/.config/brevet/anchors, such as file:/Volumes/backup/brevet-anchors.jsonl.")
+        raise typer.Exit(1)
+    for t in out["targets"]:
+        typer.echo(f"Anchor {t['ref']}: " + ("written" if t["written"] else
+                                              t.get("error") or "queued, will retry"))
+    typer.echo(f"Head: envelope {out.get('count')}, {out.get('chain_hash')}.")
+
+
+@app.command()
+def benchmark(workdir: str = ".brevet", agent: str = typer.Option(None, help="one agent's lineage")) -> None:
+    """Score the workspace's lineage on the four governed-adaptation axes (BENCHMARK.md)."""
+    from brevet.benchmark import profile
+    ledger, store, _ = _load(_existing(workdir))
+    typer.echo(json.dumps(profile(ledger, store, agent=agent), indent=2))
+
+
+@app.command()
+def recalls(workdir: str = ".brevet") -> None:
+    """List recalls, the agents that shipped each capability, and their acknowledgements."""
+    ledger, _, _ = _load(_existing(workdir))
+    items = recall_status(ledger)
+    if not items:
+        typer.echo("Recalls: none.")
+        return
+    for r in items:
+        state = "complete" if r["complete"] else f"waiting for {', '.join(r['waiting_for'])}"
+        typer.echo(f"  {r['recall_id']}  {r['capability_id']}  {state}")
+        for a in r["acknowledged"]:
+            typer.echo(f"      acknowledged by {a['agent']} {a['release'] or ''} "
+                       f"({a['serving_point']}): {a['how']}")
+    if any(not r["complete"] for r in items):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -374,7 +538,7 @@ def status(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
         elif c.revocation_status.value == "withdrawn":
             revoked += 1
     ok, n = ledger.verify()
-    line = ""
+    line, m = "", None
     if Path(manifest_path).exists():
         m = _read_manifest(manifest_path)
         line = f"{m.agent} v{m.version} [{m.release.get('channel', 'shadow')}]  "
@@ -386,6 +550,19 @@ def status(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
         waiting = len(PendingRequests(Path(workdir)).pending())
         typer.echo(f"signed approvals: required ({len(register.active())} approver(s), "
                    f"{waiting} request(s) awaiting signatures)")
+    refs = configured_anchors(Path(workdir), m)
+    if refs:
+        typer.echo(f"anchors: {len(refs)} configured ({', '.join(refs)})")
+    open_recalls = [r for r in recall_status(ledger) if not r["complete"]]
+    if open_recalls:
+        typer.echo(f"recalls: {len(open_recalls)} waiting for acknowledgement "
+                   f"(brevet recalls)")
+    lock = load_lock(Path(manifest_path).parent / "capabilities.lock") if m else None
+    if lock is not None and lock.harness_sources:
+        drift = file_drift(lock, m, Path(workdir), Path(manifest_path))
+        typer.echo(f"harness: {_plural(len(lock.harness), 'component')} locked "
+                   f"({', '.join(lock.harness_sources)}); "
+                   f"{_plural(len(drift), 'file')} changed since the release")
 
 
 @app.command()
@@ -413,6 +590,41 @@ def mcp(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(1) from None
     serve(workdir, manifest_path)
+
+
+@app.command()
+def harness(manifest_path: str = "agent.yaml", workdir: str = ".brevet") -> None:
+    """Compare the harness files with the latest release and list what changed.
+
+    Files are declared in the manifest under bindings.harness_files. The live
+    agent's components and library versions are checked by brevet.wrap()
+    before each run, since only the running program can see them."""
+    manifest = _read_manifest(manifest_path)
+    lock = load_lock(Path(manifest_path).parent / "capabilities.lock")
+    if lock is None:
+        typer.echo("Harness: no release yet, so nothing to compare.")
+        return
+    locked = {c.kind for c in lock.harness}
+    typer.echo(f"Harness: release {lock.agent_version} locks "
+               f"{_plural(len(lock.harness), 'component')} "
+               f"({', '.join(lock.harness_sources) or 'none'}).")
+    if not (manifest.bindings or {}).get("harness_files"):
+        typer.echo("No harness files are declared; add bindings.harness_files to the manifest "
+                   "to put prompts, skills, tool code or MCP configuration under change control.")
+        return
+    _warn_unmatched(manifest, manifest_path, Path(workdir))
+    live, _ = inventory(manifest, manifest_path, workdir=workdir, sources=["files"])
+    changes = compare([c for c in lock.harness if c.kind == "file"], live)
+    if "file" not in locked and live and "files" not in lock.harness_sources:
+        typer.echo("The latest release did not lock harness files; the next release will.")
+        return
+    if not changes:
+        typer.echo("Harness files: no changes since that release.")
+        return
+    for c in changes:
+        typer.echo(f"  {c['change']:8}  {c['component_id']}")
+    typer.echo(f"{_plural(len(changes), 'harness file')} changed without a release.")
+    raise typer.Exit(1)
 
 
 @app.command()
@@ -452,38 +664,61 @@ def approver_add(
     identity: str = typer.Option(..., help="the person, written human:<email>"),
     group: Annotated[list[str] | None, typer.Option(
         "--group", help="a mission group they belong to; repeat for several")] = None,
+    ssh_key: str = typer.Option(None, help="use this Ed25519 SSH key as the approver key"),
+    github: str = typer.Option(None, help="their GitHub account, which must publish the key"),
     workdir: str = typer.Option(".brevet"),
+    manifest_path: str = typer.Option(None, help="the manifest whose identity policy applies "
+                                                 "(default: agent.yaml beside the workspace)"),
 ) -> None:
-    """Create a passphrase-protected approver key and register it."""
+    """Create a passphrase-protected approver key (or use an SSH key) and register it."""
     wd = ensure_workdir(workdir)
     first = not _signing_required(wd)
-    passphrase = getpass.getpass(f"New passphrase for {identity}: ")
-    if getpass.getpass("Repeat the passphrase: ") != passphrase:
-        raise ValueError("the passphrases differ")
-    key = create_key(identity, passphrase)
-    req = request_register_add(wd, key, group)
-    out = apply_if_ready(wd, req["request_id"])
+    if ssh_key:
+        use_ssh_key(identity, ssh_key)
+        key = _unlock(identity)  # the SSH key signs its own registration
+    else:
+        passphrase = getpass.getpass(f"New passphrase for {identity}: ")
+        if getpass.getpass("Repeat the passphrase: ") != passphrase:
+            raise ValueError("the passphrases differ")
+        key = create_key(identity, passphrase)
+    req = request_register_add(wd, key, group, github=github, manifest_path=manifest_path)
+    out = apply_if_ready(wd, req["request_id"], manifest_path=manifest_path)
     if out["status"] == "applied":
         groups = f" in {', '.join(sorted(group))}" if group else ""
         typer.echo(f"Registered {key.identity}{groups}; the key is in {key_dir()}.")
         if first:
             typer.echo("Signed approvals are now required for dawn decisions, releases and "
-                       "recalls in this workspace.")
+                       "recalls in this workspace. Release again with their signatures "
+                       "(brevet release) before running outside shadow or serving rules: "
+                       "only signed releases count from now on.")
     else:
         typer.echo(f"Key created in {key_dir()}. Registration request {req['request_id']} "
                    f"needs another approver: brevet approve {req['request_id']}")
 
 
 @approver_app.command("list")
-def approver_list(workdir: str = typer.Option(".brevet")) -> None:
+def approver_list(workdir: str = typer.Option(".brevet"),
+                  manifest_path: str = typer.Option(
+                      None, help="the manifest whose identity policy applies "
+                                 "(default: agent.yaml beside the workspace)")) -> None:
     """Show the registered approvers, their groups and group thresholds."""
     register = register_from_chain(Ledger(_existing(workdir) / "ledger.jsonl"))
     if not register.approvers:
         typer.echo("No approvers are registered; decisions are recorded unsigned.")
+    try:
+        policy = identity_policy(Path(workdir), manifest_path)
+    except PermissionError as e:
+        typer.echo(f"Identity checks unavailable: {e}")
+        policy = {}
     for who, entry in sorted(register.approvers.items()):
         state = "active" if entry["active"] else "revoked"
         groups = ", ".join(entry["groups"]) or "no groups"
-        typer.echo(f"  {who}  {state}  key {entry['public_key'][:16]}...  {groups}")
+        checked = ""
+        if policy and entry["active"]:
+            problems = identity_problems({"identity": who, "public_key": entry["public_key"],
+                                          "github": entry.get("github")}, policy)
+            checked = "  identity verified" if not problems else f"  NOT VERIFIED: {problems[0]}"
+        typer.echo(f"  {who}  {state}  key {entry['public_key'][:16]}...  {groups}{checked}")
     for group, count in sorted(register.thresholds.items()):
         typer.echo(f"  {group} needs {count} signature(s)")
     local = local_identities()
@@ -517,6 +752,68 @@ def demo(directory: str = "brevet_demo") -> None:
 
 _EXPECTED = (PermissionError, ValueError, KeyError, FileNotFoundError, FileExistsError,
              RuntimeError)
+
+
+@app.command()
+def hook(workdir: str = typer.Option(None, help="the workspace folder (default: as for brevet mcp)"),
+         manifest_path: str = typer.Option(None, help="the manifest (default: as for brevet mcp)"),
+         ) -> None:
+    """Check one Claude Code tool call against the released tool tiers (a PreToolUse hook).
+
+    Reads the hook event from standard input and answers on standard output:
+    nothing when the call is allowed, a denial (or a request to ask you, for
+    a controlled_act tool) when it is not. The tiers and the channel come from
+    the latest release, never from unreleased edits to agent.yaml. Anything
+    that stops the check (no workspace, an unreadable event or manifest) blocks
+    the call: Claude Code treats exit code 2 as a refusal."""
+    import sys
+
+    from brevet.broker import hook_decision
+    from brevet.releases import released_manifest
+    from brevet.workdir import resolve_workspace
+    try:
+        event = json.loads(sys.stdin.read() or "{}")
+        if not isinstance(event, dict):
+            raise TypeError("the hook event is not an object")
+        wd, mpath = resolve_workspace(workdir, manifest_path)
+        if not mpath.exists():
+            raise FileNotFoundError(f"no manifest at {mpath}")
+        ledger = Ledger(ensure_workdir(wd) / "ledger.jsonl", anchoring=False)
+        manifest, channel = released_manifest(wd, mpath, ledger)
+        ledger.manifest = manifest
+        decision = hook_decision(event, manifest, ledger, channel=channel)
+    except Exception as e:  # noqa: BLE001 - every failure must refuse the call
+        typer.echo(f"Brevet could not check this tool call, so it is refused: {e}", err=True)
+        raise typer.Exit(2) from None
+    if decision:
+        typer.echo(json.dumps(decision))
+
+
+@consent_app.command("withdraw")
+def consent_withdraw(
+    participant: str = typer.Option(..., help="whose consent is withdrawn, e.g. human:<email>"),
+    issued_by: str = typer.Option(..., help="who records it: human:<email> or mission_group:<name>"),
+    reason: str = typer.Option("", help="why"),
+    workdir: str = typer.Option(".brevet"),
+) -> None:
+    """Stop learning from a participant and recall every capability built on their overrides."""
+    wd = _existing(workdir)
+    ledger, store, _ = _load(wd)
+    out = record_withdrawal(ledger, store, participant, issued_by=issued_by, reason=reason)
+    typer.echo(f"Consent withdrawn for {out['participant']}: their {out['overrides']} "
+               f"override(s) no longer count.")
+    releases_ = [ReleaseRecord(**e["body"]) for e in ledger.read("brevet.release")]
+    for cap_id in out["derived"]:
+        why = f"consent withdrawn by {out['participant']}"
+        if _signing_required(wd):
+            req = request_recall(wd, store, cap_id, reason=why, issued_by=issued_by,
+                                 reason_class="consent_withdrawn", action="quarantine")
+            typer.echo(f"  recall of {cap_id} requested: brevet approve {req['request_id']}")
+            continue
+        notice = do_recall(store, ledger, cap_id, reason=why, reason_class="consent_withdrawn",
+                           severity="high", issued_by=issued_by, releases=releases_,
+                           action="quarantine")
+        typer.echo(f"  recalled {cap_id} ({notice.recall_id})")
 
 
 def main() -> None:

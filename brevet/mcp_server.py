@@ -13,18 +13,18 @@ agent.yaml and .brevet/ (clients may start servers from any directory):
 
 Authority invariants hold over MCP as in code: promotion, release and
 recall tools require a ``human:`` or ``mission_group:`` identity and refuse
-every other namespace, including agent:, model: and dream:. The check is on
-the identity supplied, not on who is calling; a deployment that must stop
-an agent from promoting its own candidates also needs authenticated callers.
+every other namespace, including agent:, model: and dream:. Signed approvals
+(below) make the identity provable: an agent that can call every tool still
+cannot sign.
 
 Automatic capture is opt-in: set ``BREVET_AUTO_CAPTURE=1`` in the server's
 environment, or ``runtime_safety.evidence.auto_capture: true`` in the
 manifest, to instruct sessions to record corrections without being asked.
 
 Once the workspace registers approvers (``brevet approver add``), the dawn,
-release and recall tools no longer act directly: each returns a request that
-a person signs in a terminal with ``brevet approve``. An agent can ask for a
-decision but cannot take it.
+release, rollback and recall tools no longer act directly: each returns a
+request that a person signs in a terminal with ``brevet approve``. An agent
+can ask for a decision but cannot take it.
 """
 
 from __future__ import annotations
@@ -48,28 +48,32 @@ except ImportError:  # pragma: no cover
         raise ImportError(
             "MCP support requires the 'mcp' package: pip install 'mcp>=1.10,<3'"
         ) from e
-import yaml
 from mcp.types import ToolAnnotations
 
 from brevet import __version__
+from brevet.anchor import anchor as anchor_head
+from brevet.anchor import check as check_anchors
+from brevet.anchor import configured as configured_anchors
 from brevet.approvals import (
     PendingRequests,
     register_from_chain,
     request_promotion,
     request_recall,
     request_release,
+    request_rollback,
     verify_approvals,
 )
-from brevet.canonical import Signer, content_sha256, object_sha256
+from brevet.canonical import Signer
 from brevet.chap_bridge import dispatcher_from_ref
+from brevet.consent import allowed as consent_allowed
 from brevet.delta import dream_cycle
 from brevet.evidence import harvest_override
+from brevet.harness import inventory, unmatched_patterns
 from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
     dawn_decide,
     require_identity,
-    verify_manifest_signature,
 )
 from brevet.lifecycle import (
     recall as _recall,
@@ -79,17 +83,21 @@ from brevet.lifecycle import (
 )
 from brevet.models import (
     AgentManifest,
+    ApplicabilityContext,
     AuthorityLayer,
     CapabilitiesLock,
     ReleaseChannel,
     ReleaseRecord,
 )
+from brevet.recalls import acknowledge, affecting, recalls_on_chain
+from brevet.recalls import status as recall_status
+from brevet.releases import evidence, publish
+from brevet.releases import rollback as do_rollback
+from brevet.serving import GOVERNED_KINDS, active_rules, file_drift, load_lock, load_manifest
 from brevet.workdir import ensure_workdir, resolve_workspace
 
-#: Capability kinds that govern live agent behaviour. Eval cases, tool
-#: bindings and memory fragments stay in the workspace; they are never
-#: served to a session as rules to follow.
-GOVERNED_KINDS = {"prompt_rule", "skill", "escalation_rule", "loop_policy"}
+__all__ = ["GOVERNED_KINDS", "build_server", "serve"]
+
 
 _BASE_INSTRUCTIONS = (
     "Brevet is change control for what this assistant learns. At the start of "
@@ -101,6 +109,12 @@ _BASE_INSTRUCTIONS = (
     "authority. Candidates mined from that evidence (brevet_dream) reach the "
     "assistant only after a human or mission group promotes them "
     "(brevet_dawn_decide) and they ship in a signed release (brevet_release). "
+    "If brevet_active or brevet_harness reports harness files that changed "
+    "without a release, tell the user: the change is not under change control "
+    "until it is released. If brevet_active lists recalled rules, stop applying "
+    "them at once, even if they were served earlier in the session, and call "
+    "brevet_acknowledge with their recall ids; confirm the recalls it lists under "
+    "recalls_to_confirm the same way. "
     "Run dawn decisions, releases and recalls only on the user's explicit "
     "instruction, with the identity the user gives. When the workspace requires "
     "signed approvals, those tools return a request instead of acting: show the "
@@ -177,9 +191,7 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
             f"--manifest-path.") from e
 
     def _manifest() -> AgentManifest | None:
-        if not mpath.exists():
-            return None
-        return AgentManifest(**yaml.safe_load(mpath.read_text(encoding="utf-8")))
+        return load_manifest(mpath)
 
     m0 = _manifest()
     evidence_cfg = (m0.runtime_safety.get("evidence", {}) if m0 else {}) or {}
@@ -192,7 +204,7 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
     dispatcher = dispatcher_from_ref(ledger_ref, wd)  # created once, reused by every call
 
     def _ledger() -> Ledger:
-        return Ledger(ledger_path, dispatcher=dispatcher)
+        return Ledger(ledger_path, dispatcher=dispatcher, manifest=_manifest())
 
     def _store() -> CapabilityStore:
         return CapabilityStore(wd / "capabilities.jsonl")
@@ -207,6 +219,12 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
 
     def _signing_required() -> bool:
         return register_from_chain(_ledger()).enabled
+
+    def _lock() -> CapabilitiesLock | None:
+        return load_lock(wd, mpath)
+
+    def _file_drift(lock: CapabilitiesLock | None) -> list[dict[str, Any]]:
+        return file_drift(lock, _manifest(), wd, mpath)
 
     def _awaiting(req: dict[str, Any]) -> str:
         return json.dumps({
@@ -308,112 +326,116 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
                 "approvers": len(register.active()),
                 "awaiting_signatures": len(PendingRequests(wd).pending()),
             },
+            "harness": _harness_summary(),
+            "recalls_open": sum(not r["complete"] for r in recall_status(ledger)),
+            "anchors": configured_anchors(wd, m),
             "envelopes": n, "chain_ok": ok,
+        })
+
+    def _harness_summary() -> dict[str, Any]:
+        lock = _lock()
+        if lock is None:
+            return {"locked_components": 0, "sources": [], "file_drift": 0}
+        return {"locked_components": len(lock.harness), "sources": lock.harness_sources,
+                "file_drift": len(_file_drift(lock))}
+
+    @mcp.tool(annotations=_READ_ONLY)
+    @_tool
+    def brevet_harness() -> str:
+        """Show the harness the latest release locked (files, agent components
+        and library versions, as digests) and which declared harness files
+        changed since, such as an edited prompt or a new skill. A change that
+        is not released is not under change control: tell the user."""
+        lock = _lock()
+        if lock is None:
+            return json.dumps({"release": None, "components": [],
+                               "note": "no release yet"})
+        m = _manifest()
+        declared = bool(m and (m.bindings or {}).get("harness_files"))
+        return json.dumps({
+            "release": lock.agent_version,
+            "sources": lock.harness_sources,
+            "components": [{"component_id": c.component_id, "kind": c.kind,
+                            "detail": c.detail} for c in lock.harness],
+            "harness_files_declared": declared,
+            "unmatched_patterns": unmatched_patterns(m, mpath, workdir=wd) if m else [],
+            "file_drift": _file_drift(lock),
         })
 
     @mcp.tool(annotations=_READ_ONLY)
     @_tool
-    def brevet_active() -> str:
+    def brevet_active(task_family: str = "", domain: str = "", role: str = "",
+                      environment: str = "", risk_class: str = "", task: str = "") -> str:
         """Return the governed rules of the latest signed release, checked
-        before they are served: the evidence chain must replay intact, the
-        lock must match the digest the chain recorded for that release, the
-        release signature must verify, and each rule's content must match its
-        recorded hash. Call at session start and follow every rule returned,
-        within its conditions. Recalled capabilities are excluded and eval
+        before they are served: the evidence chain must replay intact and
+        match its anchors, the lock must match the digest the chain recorded
+        for that release, the release signature must verify, and each rule's
+        content and conditions must match what was released. Call at session
+        start and follow every rule returned, within its conditions. To
+        receive only the rules for one task, pass its family, domain, role,
+        environment or risk class, and its text as task (a rule's trigger
+        and exclusions are looked for in it); a rule restricted to a role,
+        environment or risk class is then served only when that is given.
+        Recalled rules are listed under "recalled": stop applying them, then
+        call brevet_acknowledge; recalls of earlier releases not yet confirmed
+        are listed under "recalls_to_confirm", confirmed the same way. Eval
         cases are never served. On any failed check nothing is served."""
+        context = ApplicabilityContext.of_task(
+            task or None, task_family or None,
+            {"domain": domain, "role": role, "environment": environment,
+             "risk_class": risk_class})
+        return json.dumps(active_rules(wd, mpath, ledger=_ledger(), store=_store(),
+                                       context=context))
+
+    @mcp.tool(annotations=_ADDITIVE)
+    @_tool
+    def brevet_acknowledge(recall_ids: list[str]) -> str:
+        """Confirm that this session has stopped applying recalled rules. Call
+        after brevet_active lists them under "recalled", with their recall
+        ids. Each confirmation is recorded on the evidence chain as the MCP
+        serving point's acknowledgement of that recall."""
         ledger = _ledger()
-        ok, n = ledger.verify()
-        if not ok:
-            return json.dumps({
-                "count": 0, "active": [], "chain_ok": False,
-                "error": f"the evidence chain is broken at envelope {n + 1}; follow "
-                         f"no governed rules and tell the user to run brevet verify"})
-        approvals = verify_approvals(ledger)
-        if approvals["invalid"]:
-            return json.dumps({
-                "count": 0, "active": [], "chain_ok": True,
-                "error": f"{len(approvals['invalid'])} decision(s) on the evidence chain carry "
-                         f"invalid approval signatures; follow no governed rules and tell "
-                         f"the user to run brevet verify"})
-        lockpath = next((p for p in (mpath.parent / "capabilities.lock",
-                                     wd / "capabilities.lock") if p.exists()), None)
-        if lockpath is None:
-            return json.dumps({"count": 0, "active": [], "chain_ok": True,
-                               "note": "no signed release yet"})
-        lock = CapabilitiesLock(**json.loads(lockpath.read_text(encoding="utf-8")))
-        digest = object_sha256([r.model_dump() for r in lock.resolved])
-        releases = [e["body"] for e in ledger.read("brevet.release")
-                    if e["body"].get("agent") == lock.agent]
-        latest = releases[-1] if releases else None
-
-        def refuse(reason: str) -> str:
-            return json.dumps({"count": 0, "active": [], "chain_ok": True,
-                               "agent": lock.agent, "agent_version": lock.agent_version,
-                               "error": f"{reason}; follow no governed rules and "
-                                        f"tell the user"})
-
-        if latest is None:
-            return refuse("capabilities.lock has no release on the evidence chain")
-        if not (digest == lock.lockfile_hash == latest.get("lockfile_hash")):
-            return refuse("capabilities.lock does not match the digest recorded for "
-                          f"release {latest.get('to_version')}")
-        signature = "not checked: this release predates recorded signing keys"
-        if latest.get("signer_public_key"):
-            m = _manifest()
-            if (m is None or m.version != latest.get("to_version")
-                    or not verify_manifest_signature(m, latest["signer_public_key"])
-                    or (m.release or {}).get("lockfile_hash") != digest):
-                return refuse("the manifest signature for release "
-                              f"{latest.get('to_version')} does not verify")
-            signature = "verified"
-
-        store = _store().all()
-        rules, withheld = [], []
-        for entry in lock.resolved:
-            cap = store.get(entry.capability_id)
-            if cap is None or cap.revocation_status.value != "active":
-                continue  # recalled or withdrawn since the release
-            if entry.kind not in GOVERNED_KINDS:
+        m = _manifest()
+        lock = _lock()
+        agent = (lock.agent if lock else None) or (m.agent if m else "agent")
+        known = {r.get("recall_id"): r for r in recalls_on_chain(ledger)}
+        hits = {r.get("recall_id") for r in affecting(lock, list(known.values()))}
+        done, unknown = [], []
+        for rid in recall_ids:
+            recall = known.get(rid)
+            if recall is None:
+                unknown.append(rid)
                 continue
-            if content_sha256(cap.content) != entry.content_hash or not cap.releasable:
-                withheld.append(entry.capability_id)
-                continue
-            conditions = {k: v for k, v in cap.conditions.model_dump().items() if v}
-            rules.append({
-                "capability_id": entry.capability_id,
-                "kind": entry.kind,
-                "authority_layer": entry.authority_layer,
-                "approved_by": entry.approved_by,
-                "content_hash": entry.content_hash,
-                "title": cap.title,
-                "content": cap.content.strip(),
-                "conditions": conditions,
-            })
-        out = {
-            "agent": lock.agent,
-            "agent_version": lock.agent_version,
-            "lockfile_hash": lock.lockfile_hash,
-            "chain_ok": True,
-            "signature": signature,
-            "signed_approvals": ("required and verified" if approvals["signing_required"]
-                                 else "not required in this workspace"),
-            "count": len(rules),
-            "active": rules,
-        }
-        if withheld:
-            out["withheld"] = withheld
-            out["warning"] = ("these capabilities no longer match the released "
-                              "content and were not served; tell the user")
+            how = ("the session was told to stop applying it, and brevet_active no longer "
+                   "serves it" if rid in hits else "it is not in the release served here")
+            acknowledge(ledger, recall, agent=agent, release=lock.agent_version if lock else None,
+                        serving_point="mcp", how=how)
+            done.append(rid)
+        out: dict[str, Any] = {"acknowledged": done}
+        if unknown:
+            out["unknown"] = unknown
         return json.dumps(out)
+
+    @mcp.tool(annotations=_ADDITIVE)
+    @_tool
+    def brevet_anchor() -> str:
+        """Write the evidence chain's current head to the anchors configured
+        for this workspace (outside it), so a chain later cut short, rewritten
+        or replaced is detected. Anchoring also happens after every governing
+        step; call this to anchor recent evidence as well."""
+        ledger = _ledger()
+        return json.dumps(anchor_head(ledger, wd, manifest=_manifest()))
 
     @mcp.tool(annotations=_ADDITIVE)
     @_tool
     def brevet_dream() -> str:
         """Run the dream cycle: group recurring overrides into Evidence-layer
         candidate capabilities and compile eval cases from them. Only what is
-        new is added. Candidates have no authority until a human promotes
-        them."""
-        return json.dumps(dream_cycle(_ledger(), _store()))
+        new is added, and only from the overrides of participants who
+        consented. Candidates have no authority until a human promotes them."""
+        ledger = _ledger()
+        return json.dumps(dream_cycle(ledger, _store(),
+                                      consent=consent_allowed(_manifest(), ledger)))
 
     @mcp.tool(annotations=_READ_ONLY)
     @_tool
@@ -448,36 +470,75 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
     @mcp.tool(annotations=_GOVERNING)
     @_tool
     def brevet_release(to_version: str, approver: str, channel: str = "shadow",
-                       delta_held_in: float = 0.0, delta_held_out: float = 0.0,
+                       eval_before: str = "", eval_after: str = "",
+                       delta_held_in: float | None = None, delta_held_out: float | None = None,
                        rationale: str = "") -> str:
         """Resolve promoted capabilities into capabilities.lock, sign the
         manifest (Ed25519, covering the lock's digest) and record the release.
-        Trial and production releases need the conservative gate to pass on
-        the deltas supplied here (measured, or attested by the user). Run only
-        on the user's explicit instruction, with the identity the user gives. When
-        the workspace requires signed approvals, this returns a request for the user
-        to sign."""
+        Trial and production releases need the conservative gate to pass.
+        Give eval_before and eval_after (eval run references) to bind the
+        release to measured runs, whose deltas are then used; otherwise the
+        deltas given here are recorded as attested by the approver, which
+        production releases accept only where the manifest allows it. Run only
+        on the user's explicit instruction, with the identity the user gives.
+        When the workspace requires signed approvals, this returns a request for
+        the user to sign."""
+        manifest = _required_manifest()
+        harness = inventory(manifest, mpath, workdir=wd)
+        if bool(eval_before) != bool(eval_after):
+            raise ValueError("give both eval_before and eval_after, or neither")
+        ledger, store = _ledger(), _store()
+        summary = evidence(ledger, store, manifest, harness, to_version=to_version,
+                           approver=approver, previous_lock=_lock(),
+                           evals=(eval_before, eval_after) if eval_before else None,
+                           delta_in=delta_held_in, delta_out=delta_held_out)
         if _signing_required():
             return _awaiting(request_release(
-                wd, _required_manifest(), _store(), to_version=to_version, channel=channel,
-                approver=approver,
-                eval_summary={"delta_held_in": delta_held_in, "delta_held_out": delta_held_out,
-                              "gate": "conservative"},
-                rationale=rationale, manifest_path=mpath))
+                wd, manifest, store, to_version=to_version, channel=channel,
+                approver=approver, eval_summary=summary, rationale=rationale,
+                manifest_path=mpath, harness=harness))
         manifest, lock, record = _release(
-            _required_manifest(), _store(), _ledger(),
-            Signer(wd / "keys" / "brevet_ed25519.pem"),
+            manifest, store, ledger, Signer(wd / "keys" / "brevet_ed25519.pem"),
             to_version=to_version, channel=ReleaseChannel(channel), approver=approver,
-            eval_summary={"delta_held_in": delta_held_in, "delta_held_out": delta_held_out,
-                          "gate": "conservative"},
-            rationale=rationale)
-        mpath.write_text(yaml.safe_dump(manifest.model_dump(exclude_none=False),
-                                        sort_keys=False), encoding="utf-8")
-        (mpath.parent / "capabilities.lock").write_text(lock.model_dump_json(indent=2),
-                                                         encoding="utf-8")
-        return json.dumps({"release_id": record.release_id,
-                           "from": record.from_version, "to": record.to_version,
-                           "channel": record.channel.value, "locked": len(lock.resolved)})
+            eval_summary=summary, rationale=rationale, harness=harness)
+        publish(wd, manifest, lock, mpath)
+        out = {"release_id": record.release_id,
+               "from": record.from_version, "to": record.to_version,
+               "channel": record.channel.value, "locked": len(lock.resolved),
+               "harness_components": len(lock.harness), "evidence": summary["source"]}
+        missing = unmatched_patterns(manifest, mpath, workdir=wd)
+        if missing:
+            out["warning"] = (f"bindings.harness_files patterns that match no file, so nothing "
+                              f"they name is under change control: {', '.join(missing)}")
+        return json.dumps(out)
+
+    @mcp.tool(annotations=_GOVERNING)
+    @_tool
+    def brevet_rollback(to_version: str, approver: str, as_version: str = "",
+                        channel: str = "", rationale: str = "",
+                        remove_added: bool = False) -> str:
+        """Return the agent to an earlier release as a new signed release: its
+        manifest and harness files come back, and its capabilities minus any
+        recalled or decided against since. Run only on the user's explicit
+        instruction, with the identity the user gives. When the workspace
+        requires signed approvals, this returns a request for the user to
+        sign. Harness files added since that release block the rollback unless
+        remove_added sets them aside in the workspace."""
+        manifest = _required_manifest()
+        if _signing_required():
+            return _awaiting(request_rollback(
+                wd, manifest, _store(), target=to_version, approver=approver,
+                as_version=as_version or None, channel=channel or None,
+                rationale=rationale, remove_added=remove_added, manifest_path=mpath))
+        manifest, lock, record, plan = do_rollback(
+            wd, _ledger(), _store(), Signer(wd / "keys" / "brevet_ed25519.pem"), mpath,
+            manifest, target=to_version, approver=approver, as_version=as_version or None,
+            channel=channel or None, rationale=rationale, remove_added=remove_added)
+        return json.dumps({"release_id": record.release_id, "from": record.from_version,
+                           "to": record.to_version, "restores": to_version,
+                           "locked": len(lock.resolved),
+                           "restored_files": plan["restored_files"],
+                           "left_out": plan["dropped"]})
 
     @mcp.tool(annotations=_GOVERNING)
     @_tool
@@ -487,7 +548,10 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
         """Recall a capability: withdraw it, flag every release whose lockfile
         contains it, and append the recall notice to the evidence chain.
         reason_class is one of incorrect, unsafe, consent_withdrawn,
-        superseded, stale, compliance or other; severity is low, medium, high
+        superseded, stale, compliance, duplicate or other (duplicate withdraws
+        one byte-identical copy and leaves the content to the copy that
+        stays; every other reason withdraws the content wherever it appears);
+        severity is low, medium, high
         or critical; action is quarantine, rollback or re_review. Run only on
         the user's explicit instruction, with the identity the user gives. When the
         workspace requires signed approvals, this returns a request for the user to
@@ -507,18 +571,30 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
     @mcp.tool(annotations=_READ_ONLY)
     @_tool
     def brevet_verify() -> str:
-        """Replay the hash-linked evidence chain and report whether it is
-        intact, and check every approval signature on it. Replay detects
-        edits that break the chain; detecting a wholesale rewrite needs the
-        latest hash held somewhere else."""
+        """Replay the hash-linked evidence chain, check it against the heads
+        anchored outside the workspace (a chain cut short, rewritten or
+        replaced fails), and check every approval signature on it."""
         ledger = _ledger()
         ok, n = ledger.verify()
         approvals = verify_approvals(ledger)
-        return json.dumps({"chain_ok": ok, "envelopes": n, "approvals": {
-            "signing_required": approvals["signing_required"],
-            "signed": approvals["signed"],
-            "unsigned_before_signing": approvals["unsigned_before_signing"],
-            "invalid": approvals["invalid"]}})
+        anchored = check_anchors(ledger, wd, manifest=_manifest())
+        out = {"chain_ok": ok and anchored["ok"], "envelopes": n,
+               "anchors": anchored, "approvals": {
+                   "signing_required": approvals["signing_required"],
+                   "signed": approvals["signed"],
+                   "unsigned_before_signing": approvals["unsigned_before_signing"],
+                   "invalid": approvals["invalid"]}}
+        if approvals["signing_required"] and out["chain_ok"]:
+            from brevet.approvals import identity_policy, identity_report
+            try:
+                policy = identity_policy(wd, mpath if mpath.exists() else None)
+            except PermissionError as e:
+                out["approvals"]["identities"] = f"not checked: {e}"
+            else:
+                if policy:
+                    out["approvals"]["identities"] = identity_report(
+                        register_from_chain(ledger), policy)
+        return json.dumps(out)
 
     return mcp
 

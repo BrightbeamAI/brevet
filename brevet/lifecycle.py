@@ -5,9 +5,10 @@ what an agent may use: the dawn gate, releases and recall.
 
 This is the circadian contract: a conforming deployment runs exactly one
 signed release and changes it only between releases, and what the next
-release contains is a human decision taken at the dawn gate. The generic wrapper
-records versions but does not by itself stop a host framework from
-persisting other changes; see the paper's implementation table.
+release contains is a human decision taken at the dawn gate. The wrapper
+holds a running agent to that release: the harness drift check
+(``brevet.harness``) stops it on any unreleased change to its files, its
+code or its tools outside the shadow channel.
 
 Nothing in this module can promote a capability by itself. Every decision
 names the identity that took it, and only ``human:<who>`` and
@@ -30,15 +31,23 @@ import re
 from pathlib import Path
 from typing import Any
 
-from brevet.approvals import enforce, promotion_payload, recall_payload, release_payload
+from brevet.approvals import (
+    enforce,
+    evals_of,
+    promotion_payload,
+    recall_payload,
+    release_payload,
+)
 from brevet.canonical import Signer, content_sha256, object_sha256
 from brevet.evals import conservative_gate
+from brevet.harness import lock_digest
 from brevet.identity import require_identity
 from brevet.models import (
     AgentManifest,
     AuthorityLayer,
     CapabilitiesLock,
     CapabilityObject,
+    HarnessComponent,
     LockedCapability,
     RecallNotice,
     ReleaseChannel,
@@ -51,7 +60,7 @@ from brevet.workdir import file_lock
 
 DAWN_OUTCOMES = ("promote", "hold", "reject", "re_elicit")
 RECALL_REASONS = ("incorrect", "unsafe", "consent_withdrawn", "superseded", "stale",
-                  "compliance", "other")
+                  "compliance", "duplicate", "other")
 RECALL_SEVERITIES = ("low", "medium", "high", "critical")
 RECALL_ACTIONS = ("quarantine", "rollback", "re_review")
 
@@ -64,8 +73,9 @@ def _body(record) -> dict[str, Any]:
     """An envelope body for a release or recall; ``approval`` appears only
     when the decision was signed."""
     body = record.model_dump(mode="json")
-    if body.get("approval") is None:
-        body.pop("approval", None)
+    for key in ("approval", "restores", "set_aside"):
+        if body.get(key) is None:
+            body.pop(key, None)
     return body
 
 
@@ -191,23 +201,61 @@ def dawn_decide(
     return cap
 
 
-def build_lock(manifest: AgentManifest, store: CapabilityStore) -> CapabilitiesLock:
-    """Resolve the releasable capabilities into a lock.
+def _promotions(ledger) -> dict[str, dict[str, Any]]:
+    """The latest dawn decision on the evidence chain per capability. Once
+    approvers are registered, a decision without valid signatures does not
+    count."""
+    from brevet.approvals import verify_envelopes
+    envelopes = list(ledger.read())
+    invalid = {i["envelope_id"] for i in verify_envelopes(envelopes)["invalid"]}
+    return {e["body"].get("capability_id"): e["body"] for e in envelopes
+            if e.get("kind") == "brevet.promotion" and e.get("envelope_id") not in invalid}
+
+
+def build_lock(manifest: AgentManifest, store: CapabilityStore,
+               harness: tuple[list[HarnessComponent], list[str]] | None = None,
+               ledger=None, only: set[str] | None = None) -> CapabilitiesLock:
+    """Resolve the releasable capabilities into a lock, with the harness
+    components the release runs with when ``harness`` is given.
 
     Only promoted, active capabilities qualify. A capability whose content
     matches a recalled one is left out, so recalled content cannot return
     under a new identifier. A capability whose stored content no longer
-    matches its recorded hash stops the release."""
+    matches its recorded hash stops the release, and so, when ``ledger`` is
+    given, does one marked promoted in the store without a matching
+    promotion on the evidence chain. ``only`` limits the lock to the
+    capabilities named, as a rollback does."""
     lock = CapabilitiesLock(agent=manifest.agent, agent_version=manifest.version)
+    if harness is not None:
+        lock.harness, lock.harness_sources = list(harness[0]), sorted(harness[1])
+    promotions = _promotions(ledger) if ledger is not None else None
     caps = list(store.all().values())
-    recalled = {c.content_hash for c in caps
-                if c.revocation_status == RevocationStatus.withdrawn and c.content_hash}
+    duplicates: set[str] = set()   # copies recalled as duplicates leave their content
+    if ledger is not None:
+        from brevet.recalls import reaches_content, recalls_on_chain
+        notices = recalls_on_chain(ledger)
+        duplicates = {r.get("capability_id") for r in notices if not reaches_content(r)}
+        recalled = {r["content_hash"] for r in notices
+                    if reaches_content(r) and r.get("content_hash")}
+    else:
+        recalled = set()
+    recalled |= {c.content_hash for c in caps
+                 if c.revocation_status == RevocationStatus.withdrawn and c.content_hash
+                 and c.capability_id not in duplicates}
     for cap in caps:
-        if not cap.releasable:
+        if not cap.releasable or (only is not None and cap.capability_id not in only):
             continue  # evidence-layer and revoked material is never locked in
         if content_sha256(cap.content) != cap.content_hash:
             raise ValueError(f"capability '{cap.capability_id}' no longer matches its "
                              f"recorded content hash; the capability store was edited")
+        if promotions is not None:
+            decision = promotions.get(cap.capability_id) or {}
+            if (decision.get("outcome") != "promote"
+                    or decision.get("to_layer") != cap.authority_layer.value
+                    or decision.get("content_hash", cap.content_hash) != cap.content_hash):
+                raise ValueError(f"capability '{cap.capability_id}' is marked promoted in the "
+                                 f"store, but the evidence chain has no matching promotion; "
+                                 f"the capability store was edited")
         if cap.content_hash in recalled:
             continue
         approved_by = cap.provenance.mission_group_reviewed_by or cap.provenance.human_confirmed_by
@@ -217,13 +265,13 @@ def build_lock(manifest: AgentManifest, store: CapabilityStore) -> CapabilitiesL
                 kind=cap.kind.value,
                 content_hash=cap.content_hash,
                 authority_layer=cap.authority_layer.value,
-                conditions_digest=object_sha256(cap.conditions.model_dump()),
+                conditions_digest=cap.conditions.digest(),
                 approved_by=approved_by or "unrecorded",
                 approved_at=cap.updated_at,
                 evidence_refs=cap.evidence.supporting_overrides[:20],
             )
         )
-    lock.lockfile_hash = object_sha256([r.model_dump() for r in lock.resolved])
+    lock.lockfile_hash = lock_digest(lock)
     return lock
 
 
@@ -236,9 +284,22 @@ def prepare_release(
     approver: str,
     eval_summary: dict | None = None,
     rationale: str = "",
+    harness: tuple[list[HarnessComponent], list[str]] | None = None,
+    ledger=None,
+    only: set[str] | None = None,
+    restores: str | None = None,
+    set_aside: list[str] | None = None,
 ) -> tuple[str, ReleaseChannel, CapabilitiesLock, dict[str, Any]]:
     """Validate a release and return the approver, the channel, the lock it
-    would ship and the payload an approver signs."""
+    would ship and the payload an approver signs. The payload names the lock
+    (with its harness components), the manifest and the evidence behind the
+    numbers exactly as they will be recorded, so an approval covers them all.
+
+    The evidence is ``eval_summary["source"]``: ``measured`` (bound to eval
+    runs by ``brevet.evals.bind_evals``), ``attested`` (deltas the approver
+    vouches for; the default) or ``rollback`` (a return to an earlier
+    release, which needs no gate). Production releases need measured runs
+    unless the manifest sets ``runtime_safety.evals.allow_attested``."""
     who = require_identity(approver, role="release approver")
     channel = ReleaseChannel(channel)
     target = _version_tuple(to_version)
@@ -248,17 +309,51 @@ def prepare_release(
     if current is not None and target <= current:
         raise ValueError(f"to_version {to_version} must be higher than the current "
                          f"version {manifest.version}")
-    es = eval_summary or {}
-    if channel != ReleaseChannel.shadow and not conservative_gate(
-            es.get("delta_held_in", -1), es.get("delta_held_out", -1)):
+    es = {"source": "attested", **(eval_summary or {})}
+    if eval_summary is not None:
+        eval_summary.setdefault("source", es["source"])
+    if es["source"] not in ("measured", "attested", "rollback"):
+        raise ValueError(f"unknown eval source {es['source']!r}")
+    if (es["source"] == "rollback") != (restores is not None):
+        raise ValueError("a rollback names the release it restores, and only a rollback does")
+    allow_attested = bool(((manifest.runtime_safety or {}).get("evals") or {})
+                          .get("allow_attested"))
+    if (channel == ReleaseChannel.production and es["source"] == "attested"
+            and not allow_attested):
         raise ValueError(
-            "release blocked: conservative gate not passed "
-            "(need delta_in >= 0, delta_out >= 0, max > 0)"
-        )
-    lock = build_lock(manifest.model_copy(update={"version": to_version}), store)
+            "release blocked: production releases need measured eval runs (pass the "
+            "'before' and 'after' runs), or set runtime_safety.evals.allow_attested")
+    if (channel != ReleaseChannel.shadow and es["source"] != "rollback"
+            and not conservative_gate(es.get("delta_held_in", -1),
+                                      es.get("delta_held_out", -1))):
+        reason = ("release blocked: conservative gate not passed "
+                  "(need delta_in >= 0, delta_out >= 0, max > 0)")
+        if ledger is not None:  # the cost of governance stays on the record
+            ledger.append("brevet.gate", {
+                "agent": manifest.agent, "to_version": to_version, "channel": channel.value,
+                "reason": reason, "delta_held_in": es.get("delta_held_in"),
+                "delta_held_out": es.get("delta_held_out"), "source": es["source"]})
+        raise ValueError(reason)
+    lock = build_lock(manifest.model_copy(update={"version": to_version}), store, harness,
+                      ledger=ledger, only=only)
+    if es["source"] == "measured":
+        # whatever path the summary took, it must follow from runs on the chain that
+        # evaluated exactly this lock and manifest
+        if ledger is None:
+            raise ValueError("a measured release needs the evidence chain its runs are on")
+        from brevet.evals import bind_evals
+        bound = bind_evals(ledger, es.get("before"), es.get("after"), agent=manifest.agent,
+                           lock=lock, harness=harness, manifest=manifest, store=store)
+        for key in ("delta_held_in", "delta_held_out"):
+            if abs(float(es.get(key) or 0.0) - bound[key]) > 1e-9:
+                raise ValueError(f"the release's {key} does not follow from its eval runs")
+    prospective = manifest.model_copy(deep=True, update={"version": to_version})
+    prospective.release = {"channel": channel.value, "lockfile_hash": lock.lockfile_hash}
     payload = release_payload(manifest.agent, manifest.version, to_version, channel.value,
                               lock.lockfile_hash, es.get("delta_held_in"),
-                              es.get("delta_held_out"), rationale, who)
+                              es.get("delta_held_out"), rationale, who,
+                              object_sha256(prospective.unsigned_payload()),
+                              evals_of(es), restores, set_aside or None)
     return who, channel, lock, payload
 
 
@@ -274,17 +369,25 @@ def release(
     eval_summary: dict | None = None,
     rationale: str = "",
     approval: dict[str, Any] | None = None,
+    harness: tuple[list[HarnessComponent], list[str]] | None = None,
+    only: set[str] | None = None,
+    restores: str | None = None,
+    set_aside: list[str] | None = None,
 ) -> tuple[AgentManifest, CapabilitiesLock, ReleaseRecord]:
     """Produce the next signed harness version.
 
     Non-shadow channels require the conservative gate to pass on the deltas
-    in ``eval_summary``, which the caller supplies. The signature covers the
-    manifest, including the digest of the new capabilities.lock. A signed
-    approval must match the lock exactly: if promotions changed after it was
-    signed, the release is refused."""
+    in ``eval_summary`` (see ``prepare_release`` for measured, attested and
+    rollback evidence). The signature covers the manifest, including the
+    digest of the new capabilities.lock. A signed approval must match the
+    lock, the manifest and the evidence exactly: if any changed after it was
+    signed, the release is refused. ``harness`` (from
+    ``brevet.harness.inventory``) locks the harness components as well."""
+    eval_summary = dict(eval_summary) if eval_summary is not None else {}
     who, channel, lock, expected = prepare_release(
         manifest, store, to_version=to_version, channel=channel, approver=approver,
-        eval_summary=eval_summary, rationale=rationale)
+        eval_summary=eval_summary, rationale=rationale, harness=harness, ledger=ledger,
+        only=only, restores=restores, set_aside=set_aside)
     approval = enforce(ledger, expected, approval)
 
     from_version = manifest.version
@@ -315,6 +418,8 @@ def release(
         rationale=rationale,
         signer_public_key=public_key,
         approval=approval,
+        restores=restores,
+        set_aside=set_aside or None,
     )
     ledger.append("brevet.release", _body(record))
     return manifest, lock, record
@@ -357,6 +462,11 @@ def prepare_recall(
     cap = caps[capability_id]
     if cap.revocation_status == RevocationStatus.withdrawn:
         raise ValueError(f"capability '{capability_id}' has already been recalled")
+    if reason_class == "duplicate" and not any(
+            c.capability_id != capability_id and c.content_hash == cap.content_hash
+            and c.revocation_status != RevocationStatus.withdrawn for c in caps.values()):
+        raise ValueError(f"no other capability holds the content of '{capability_id}', so "
+                         f"it is not a duplicate; recall it with another reason")
     payload = recall_payload(capability_id, cap.content_hash, reason, reason_class,
                              severity, action, who)
     return cap, who, payload

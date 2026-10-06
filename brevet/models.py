@@ -118,21 +118,87 @@ class ApplicabilityContext(BaseModel):
     valid_until: str | None = None
 
     def matches(self, runtime: ApplicabilityContext) -> bool:
-        """Conditions-first matching: every condition set here must be
-        satisfied by the runtime context. Unset fields are unconstrained.
-        Exclusions veto. This runs BEFORE any similarity ranking."""
-        for field in ("task_family", "domain", "model_family", "role",
-                      "operating_mode", "environment", "trigger_context"):
-            want = getattr(self, field)
-            have = getattr(runtime, field)
-            if want is not None and want != have:
+        """Conditions-first matching, run before any similarity ranking.
+
+        A rule's scope (task family, domain, model family, operating mode) is
+        judged where the runtime states it, so a task described only by its
+        family is matched on its family. A restriction (role, risk class,
+        environment) and a trigger hold only where the runtime establishes
+        them: a rule for high-risk work is not served to a task whose risk is
+        unknown. The trigger and the exclusions are looked for in the task's
+        own text (``runtime.trigger_context``), ignoring case, and any
+        exclusion found there vetoes the rule."""
+        for field in _SCOPE_FIELDS:
+            want, have = getattr(self, field), getattr(runtime, field)
+            if want is not None and have is not None and want != have:
                 return False
-        if self.risk_class is not None and self.risk_class != runtime.risk_class:
+        for field in _RESTRICTION_FIELDS:
+            want = getattr(self, field)
+            if want is not None and getattr(runtime, field) != want:
+                return False
+        text = (runtime.trigger_context or "").casefold()
+        if self.trigger_context and self.trigger_context.casefold() not in text:
             return False
-        for excl in self.exclusion_conditions:
-            if excl and excl in (runtime.trigger_context or ""):
+        return not any(e and e.casefold() in text for e in self.exclusion_conditions)
+
+    @classmethod
+    def of_task(cls, task: str | None = None, task_family: str | None = None,
+                context: dict[str, Any] | None = None) -> ApplicabilityContext | None:
+        """The runtime context of one task: its family, its text (where
+        triggers and exclusions are looked for) and the condition fields the
+        caller's context supplies (domain, model_family, operating_mode,
+        role, risk_class, environment). None when nothing is known."""
+        given = {k: str(v) for k, v in (context or {}).items() if k in RUNTIME_FIELDS and v}
+        if task_family:
+            given["task_family"] = task_family
+        if task:
+            given["trigger_context"] = task
+        return cls(**given) if given else None
+
+    def in_effect(self, at: datetime | None = None) -> bool:
+        """False outside the validity window. A bound written as a date
+        covers that whole day; a bound that cannot be read means not in
+        effect, so a mistyped window withholds the rule rather than serving
+        it indefinitely."""
+        now = at or datetime.now(timezone.utc)
+        for bound, end in ((self.valid_from, False), (self.valid_until, True)):
+            if not bound:
+                continue
+            when = _parse_bound(bound, end_of_day=end)
+            if when is None or (now < when if not end else now > when):
                 return False
         return True
+
+    def digest(self) -> str:
+        """The digest a release locks for these conditions. Fields added
+        after 0.1 count only when set, so adding a field to this model later
+        does not change the digest of rules already released."""
+        from brevet.canonical import object_sha256
+        d = self.model_dump()
+        return object_sha256({k: v for k, v in d.items()
+                              if k in _CONDITION_FIELDS_0_1 or v not in (None, "", [], {})})
+
+
+def _parse_bound(text: str, *, end_of_day: bool) -> datetime | None:
+    try:
+        if len(text) == 10:  # a date: the window covers the whole day
+            day = datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+            return day.replace(hour=23, minute=59, second=59, microsecond=999999) \
+                if end_of_day else day
+        when = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+_SCOPE_FIELDS = ("task_family", "domain", "model_family", "operating_mode")
+_RESTRICTION_FIELDS = ("role", "risk_class", "environment")
+RUNTIME_FIELDS = (*_SCOPE_FIELDS, *_RESTRICTION_FIELDS)
+
+_CONDITION_FIELDS_0_1 = frozenset({
+    "task_family", "domain", "model_family", "tool_scope", "role", "risk_class",
+    "operating_mode", "environment", "trigger_context", "exclusion_conditions",
+    "valid_from", "valid_until"})
 
 
 class EvalResult(BaseModel):
@@ -256,12 +322,25 @@ class LockedCapability(BaseModel):
     revocation_status: str = "active"
 
 
+class HarnessComponent(BaseModel):
+    """One piece of the harness a release runs with: a file, a component of
+    the live agent, or a library version. Only a digest and a short label
+    are kept, never the content itself."""
+
+    component_id: str          # e.g. file:prompts/system.md, agent:tool:search, env:langgraph
+    kind: str                  # file | agent | env
+    digest: str
+    detail: str = ""
+
+
 class CapabilitiesLock(BaseModel):
     agent: str
     agent_version: str
     generated_at: str = Field(default_factory=_now)
     lockfile_hash: str = ""
     resolved: list[LockedCapability] = Field(default_factory=list)
+    harness: list[HarnessComponent] = Field(default_factory=list)
+    harness_sources: list[str] = Field(default_factory=list)  # files | agent | env
 
 
 # ---------------------------------------------------- release and recall
@@ -284,6 +363,8 @@ class ReleaseRecord(BaseModel):
     rationale: str | None = None
     signer_public_key: str = ""
     approval: dict[str, Any] | None = None
+    restores: str | None = None   # set when the release rolls back to an earlier one
+    set_aside: list[str] | None = None  # harness files a rollback moved aside
 
 
 class RecallNotice(BaseModel):

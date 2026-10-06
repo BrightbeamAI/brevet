@@ -38,7 +38,6 @@ import sys
 from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
-GOVERNED_KINDS = {"prompt_rule", "skill", "escalation_rule", "loop_policy"}
 
 
 def _identities(root: Path) -> tuple[str, str]:
@@ -54,9 +53,12 @@ def _identities(root: Path) -> tuple[str, str]:
 
 
 def _agent(root: Path, draft: str = ""):
+    """The workspace as the MCP server sees it: root/agent.yaml and
+    root/.brevet/, so both paths record and release the same agent."""
     os.chdir(root)
     import brevet
-    return brevet.wrap(lambda task: draft)
+    return brevet.wrap(lambda task: draft, manifest=root / "agent.yaml",
+                       workdir=root / ".brevet")
 
 
 def _emit(obj) -> None:
@@ -124,64 +126,59 @@ def cmd_verify(a) -> None:
 
 
 # ---------------------------------------------------------- apply/check
-def _governed_text(root: Path) -> tuple[str, int]:
-    """Deterministic content of the governed rules file: everything in the
-    latest signed lock that is still active (recalls take effect here)."""
-    from brevet.lifecycle import CapabilityStore
-    # The MCP server writes the lock beside the manifest (playground root);
-    # older layouts kept it in .brevet/. Prefer the root copy, fall back.
-    lockpath = next((p for p in (root / "capabilities.lock",
-                                 root / ".brevet" / "capabilities.lock")
-                     if p.exists()), root / "capabilities.lock")
+def _governed_text(root: Path) -> tuple[str, int, str]:
+    """Deterministic content of the governed rules file: exactly what the
+    MCP tool brevet_active would serve, after the same checks (chain,
+    approvals, lock, signature, each rule's content and conditions)."""
+    from brevet.serving import active_rules
+    result = active_rules(root / ".brevet", root / "agent.yaml")
     head = ["# ACTIVE CAPABILITIES (governed by Brevet)",
             "",
             "Managed by `tools/brevet_cowork.py apply`. Never hand-edit:",
             "content here exists only because a named human promoted it and",
             "a signed release shipped it. Recalled items are removed.",
             ""]
-    if not lockpath.exists():
-        return "\n".join(head + ["No signed release yet: no active capabilities.", ""]), 0
-    lock = json.loads(lockpath.read_text())
-    store = CapabilityStore(root / ".brevet" / "capabilities.jsonl").all()
-    head += [f"Agent: {lock['agent']}  Version: {lock['agent_version']}",
-             f"Lockfile hash: {lock['lockfile_hash']}", ""]
-    body, n = [], 0
-    for entry in lock.get("resolved", []):
-        cap = store.get(entry["capability_id"])
-        if cap is None or cap.revocation_status.value != "active":
-            continue  # recalled or withdrawn since the release
-        if entry["kind"] not in GOVERNED_KINDS:
-            continue  # eval cases etc. stay in the workspace only
-        n += 1
-        body += [f"## {entry['capability_id']}",
-                 f"- kind: {entry['kind']}  |  authority: {entry['authority_layer']}",
-                 f"- approved_by: {entry.get('approved_by', 'unrecorded')}",
-                 f"- content_hash: {entry['content_hash']}",
-                 "", cap.content.strip(), ""]
-    if n == 0:
+    if result.get("error"):
+        reason = result["error"].split("; follow no governed rules")[0]
+        return "\n".join(head + [f"No governed rules: {reason}.", ""]), 0, reason
+    if "lockfile_hash" not in result:
+        return "\n".join(head + ["No signed release yet: no active capabilities.", ""]), 0, ""
+    head += [f"Agent: {result['agent']}  Version: {result['agent_version']}",
+             f"Lockfile hash: {result['lockfile_hash']}", ""]
+    for key in ("warning", "manifest_warning", "harness_warning"):
+        if result.get(key):
+            head += [f"> Warning: {result[key].split('; tell the user')[0]}.", ""]
+    body = []
+    for rule in result["active"]:
+        body += [f"## {rule['capability_id']}",
+                 f"- kind: {rule['kind']}  |  authority: {rule['authority_layer']}",
+                 f"- approved_by: {rule['approved_by']}",
+                 f"- content_hash: {rule['content_hash']}",
+                 "", rule["content"], ""]
+    if not body:
         body = ["No active released capabilities (everything recalled or none released).", ""]
-    return "\n".join(head + body), n
+    return "\n".join(head + body), result["count"], ""
 
 
 def cmd_apply(a) -> None:
     root = Path(a.root)
-    text, n = _governed_text(root)
+    text, n, error = _governed_text(root)
     target = root / "governed" / "ACTIVE_CAPABILITIES.md"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text)
-    _emit({"written": str(target), "active_capabilities": n})
+    _emit({"written": str(target), "active_capabilities": n, **({"error": error} if error else {})})
 
 
 def cmd_check(a) -> None:
     root = Path(a.root)
     ok, n = _agent(root).verify()
-    expected, count = _governed_text(root)
+    expected, count, error = _governed_text(root)
     target = root / "governed" / "ACTIVE_CAPABILITIES.md"
     state = ("missing" if not target.exists()
              else "in_sync" if target.read_text() == expected else "STALE")
-    _emit({"chain_ok": ok, "envelopes": n,
-           "governed_file": state, "active_capabilities": count})
-    sys.exit(0 if ok and state == "in_sync" else 1)
+    _emit({"chain_ok": ok, "envelopes": n, "governed_file": state,
+           "active_capabilities": count, **({"error": error} if error else {})})
+    sys.exit(0 if ok and state == "in_sync" and not error else 1)
 
 
 # ------------------------------------------------------------------ cli

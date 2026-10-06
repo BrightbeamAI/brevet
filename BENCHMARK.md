@@ -3,8 +3,9 @@
 Research on self-improving agents mostly measures one thing: whether the
 agent got better. Teams that run agents in production need four
 properties, and improvement is only the first. This document specifies a
-benchmark that scores all four side by side. **No implementation of it
-exists yet**; this is its design, as specified in the paper.
+benchmark that scores all four side by side, as the paper sets out.
+`brevet benchmark` computes the profile below for any Brevet workspace; the
+data releases and the comparison across systems are the benchmark's design.
 
 ## What a submission is given
 

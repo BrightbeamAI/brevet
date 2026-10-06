@@ -18,10 +18,10 @@ normal conversation are the only input it needs.
 | Override | When you change Claude's draft and use your own version, Claude records the pair (its first draft and your final) as an override, with your one-line reason and a tag, without being asked. |
 | Dream | When you ask, overrides that recur (three or more with the same tag and task family) become candidate rules. Candidates have no authority. |
 | Dawn | You promote, hold or reject each candidate in plain chat. Your identity is recorded, and approvals under machine identities are rejected. |
-| Evals | Trial and production releases need the conservative gate: you supply the before-and-after deltas, measured or attested, and neither half of the eval cases may get worse. |
-| Release | Promoted rules go into a signed release with its `capabilities.lock`. Sessions fetch them with `brevet_active`, which checks the chain, the lock, the signature and each rule before serving it. |
-| Recall | One command recalls a rule; `brevet_active` stops serving it, and later releases leave it out. |
-| Verify | Any session can replay the evidence chain to detect edits to its history. |
+| Evals | Trial releases need the conservative gate on the deltas you attest; neither half of the eval cases may get worse. Production releases need measured eval runs, unless `agent.yaml` allows attestation. |
+| Release | Promoted rules go into a signed release with its `capabilities.lock`. Sessions fetch them with `brevet_active`, which checks the chain and its anchors, the lock, the signature and each rule before serving it. `brevet_rollback` returns to any earlier release. |
+| Recall | One command recalls a rule. `brevet_active` lists it as recalled, Claude stops applying it at once and confirms with `brevet_acknowledge`, and later releases leave it out. |
+| Verify | Any session can replay the evidence chain and check it against its anchors, so edits, truncation or a replaced history are caught. |
 
 Claude's standing instructions (the capture skill) tell it to take learned rules only from `brevet_active`, which serves nothing when the evidence chain or the release fails its checks, and never to persist learned rules through memory or any other side channel. A rule is meant to last only if you promoted it at dawn. When the workspace folder is mounted, `tools/brevet_cowork.py apply` also writes the active rules to `governed/ACTIVE_CAPABILITIES.md` as a readable copy.
 
@@ -74,21 +74,84 @@ $ ~/.brevet/venv/bin/brevet approver add --identity human:you@example.com \
     --group mission_group:review_board --workdir ~/brevet-cowork/.brevet
 ```
 
-From then on, "promote it" in chat makes Claude prepare a request and give
-you a `brevet approve` command. Nothing changes until you run it in Terminal
+Then release again and sign it: once an approver is registered,
+`brevet_active` serves rules only from a signed release. From then on,
+"promote it" in chat makes Claude prepare a request and give you a
+`brevet approve` command. Nothing changes until you run it in Terminal
 and enter your passphrase; the key never leaves your Mac and Claude cannot use
 it. One `brevet approve --all` signs everything you agreed to in a dawn
 session.
 
-## What Brevet can and cannot enforce here
+## Claude's own harness (optional)
 
-Brevet cannot sit between you and Claude the way it wraps a Python agent,
-because the assistant's harness belongs to its vendor, not to you. So the
-controls here detect problems rather than prevent them. Sessions take learned rules from `brevet_active`, which checks the evidence chain, the lock, the release signature and each rule's content before serving anything, and a mismatch shows up rather than being blocked. The records are complete: who promoted
-each rule, what each release contains and what was recalled. But a passing
-check cannot prove that Claude read only the governed rules file, or that it
-stopped using a recalled rule already in its context. The paper's case study
-describes this boundary in full.
+Skills, `CLAUDE.md` files and connector settings shape Claude as much as
+learned rules do. Name them in `agent.yaml`, and every release locks a
+digest of each one (never its content):
+
+```yaml
+bindings:
+  harness_files:
+    - ~/.claude/CLAUDE.md
+    - ~/.claude/skills/
+    - ~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+Release straight after editing `agent.yaml`: until the edit is released,
+`brevet_active` serves no rules, because the manifest is no longer the one
+signed (a workspace whose last release predates Brevet 0.2.0 gets a warning
+instead). From then on, `brevet_active` reports any of these files that
+changed since, Claude tells you at the start of the session, and
+`brevet_harness` lists them. Release again to accept a change.
+
+## Anchoring the record (recommended)
+
+Keep a copy of the evidence chain's head off the machine, so a history that
+is cut short, rewritten or replaced is caught. One line in your own
+configuration, outside the workspace, is enough; a synced folder works:
+
+```console
+$ mkdir -p ~/.config/brevet
+$ echo "file:$HOME/Library/Mobile Documents/com~apple~CloudDocs/brevet-anchors.jsonl" \
+    >> ~/.config/brevet/anchors
+$ ~/.brevet/venv/bin/brevet anchor --workdir ~/brevet-cowork/.brevet \
+    --manifest-path ~/brevet-cowork/agent.yaml
+```
+
+The last command anchors the history the workspace already has. Brevet then
+anchors after every dawn decision, release and recall; the weekly digest
+anchors the week's evidence with `brevet_anchor`, and `brevet_verify`,
+`brevet_active` and the Claude Code hook refuse a chain that no longer holds
+its anchored heads.
+
+## Claude Code: tool tiers (optional)
+
+In Claude Code, declare which tools Claude may use in which tier under
+`bindings.tools` in `agent.yaml`, release it, and add Brevet as a hook in
+`.claude/settings.json`. The hook applies the tiers and channel of the latest
+release: an undeclared tool is refused, an act tool is refused on the shadow
+channel, Claude Code asks you before a controlled_act call and the
+PostToolUse hook records your grant. A call the hook cannot check is refused.
+
+```json
+{"hooks": {
+  "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command",
+    "command": "~/.brevet/venv/bin/brevet hook --workdir ~/brevet-cowork/.brevet --manifest-path ~/brevet-cowork/agent.yaml"}]}],
+  "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command",
+    "command": "~/.brevet/venv/bin/brevet hook --workdir ~/brevet-cowork/.brevet --manifest-path ~/brevet-cowork/agent.yaml"}]}]}}
+```
+
+## How the checks hold Claude to its releases
+
+Sessions take learned rules only from `brevet_active`, which checks the
+evidence chain and its anchors, the approvals, the lock, the release
+signature, and each rule's content and conditions before serving anything.
+It reports harness files or an `agent.yaml` changed since the release, and
+lists recalled rules, which Claude stops applying and acknowledges on the
+record; in a session, that acknowledgement is the assistant's own
+confirmation, while a wrapped Python agent's comes from Brevet withholding
+the rule. The records are complete: who promoted each rule, what each release
+contains, what was recalled and who confirmed it. The paper's case study
+compares this with wrapping a Python agent.
 
 ## Before you run it
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brightbeam.ai/schemas/brevet/capabilities_lock.schema.json",
   "title": "CapabilitiesLock",
-  "description": "capabilities.lock: the Capability Bill of Materials for one agent release. Answers 'what does this agent know, where did each piece come from, and who approved it' in one file. Only advisory- and controlled-layer capabilities may appear; evidence-layer material can never be locked into a release.",
+  "description": "capabilities.lock: the bill of materials for one agent release. Answers 'what does this agent know, where did each piece come from, who approved it, and what harness does it run with' in one file. Only advisory- and controlled-layer capabilities may appear; evidence-layer material can never be locked into a release.",
   "type": "object",
   "required": ["agent", "agent_version", "resolved"],
   "properties": {
@@ -20,7 +20,7 @@
           "kind": { "type": "string" },
           "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
           "authority_layer": { "type": "string", "enum": ["advisory", "controlled"] },
-          "conditions_digest": { "type": ["string", "null"], "description": "Hash of the applicability conditions at lock time; a condition change forces re-lock." },
+          "conditions_digest": { "type": ["string", "null"], "description": "Hash of the applicability conditions at lock time; a rule whose conditions change after release is not served." },
           "approved_by": { "type": "string" },
           "approved_at": { "type": "string", "format": "date-time" },
           "promotion_ref": { "type": ["string", "null"], "description": "CHAP decide.* envelope id for the promotion decision." },
@@ -28,6 +28,25 @@
           "revocation_status": { "type": "string", "default": "active" }
         }
       }
+    },
+    "harness": {
+      "type": "array",
+      "description": "The harness bill of materials: one digest per file, live-agent component and library version, never content.",
+      "items": {
+        "type": "object",
+        "required": ["component_id", "kind", "digest"],
+        "properties": {
+          "component_id": { "type": "string", "description": "e.g. file:prompts/system.md, agent:tool:search, env:langgraph" },
+          "kind": { "type": "string", "enum": ["file", "agent", "env"] },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "detail": { "type": "string", "description": "A short label, such as a library version or a tool name." }
+        }
+      }
+    },
+    "harness_sources": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["files", "agent", "env"] },
+      "description": "Which parts of the harness this release inventoried; drift is checked against these only."
     }
   }
 }

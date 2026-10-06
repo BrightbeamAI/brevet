@@ -120,16 +120,16 @@
       "type": "object",
       "description": "Conditions are evaluated computationally BEFORE any similarity ranking (conditions-first retrieval). A capability whose conditions do not match is not weakened; it is withheld, and out-of-envelope near-matches escalate.",
       "properties": {
-        "task_family": { "type": ["string", "null"] },
-        "domain": { "type": ["string", "null"] },
+        "task_family": { "type": ["string", "null"], "description": "Scope: judged where the runtime states the task family." },
+        "domain": { "type": ["string", "null"], "description": "Scope: judged where the runtime states the domain." },
         "model_family": { "type": ["string", "null"], "description": "Capabilities are model-specific by default (harness edits rarely transfer across model families unexamined)." },
         "tool_scope": { "type": "array", "items": { "type": "string" } },
-        "role": { "type": ["string", "null"] },
-        "risk_class": { "type": ["string", "null"], "enum": ["low", "medium", "high", "critical", null] },
+        "role": { "type": ["string", "null"], "description": "Restriction: holds only where the runtime establishes this role." },
+        "risk_class": { "type": ["string", "null"], "enum": ["low", "medium", "high", "critical", null], "description": "Restriction: holds only where the runtime establishes this risk class." },
         "operating_mode": { "type": ["string", "null"] },
-        "environment": { "type": ["string", "null"] },
-        "trigger_context": { "type": ["string", "null"] },
-        "exclusion_conditions": { "type": "array", "items": { "type": "string" } },
+        "environment": { "type": ["string", "null"], "description": "Restriction: holds only where the runtime establishes this environment." },
+        "trigger_context": { "type": ["string", "null"], "description": "Holds only where this text appears in the task's own text (ignoring case)." },
+        "exclusion_conditions": { "type": "array", "items": { "type": "string" }, "description": "Any of these found in the task's own text (ignoring case) vetoes the capability." },
         "valid_from": { "type": ["string", "null"], "format": "date-time" },
         "valid_until": { "type": ["string", "null"], "format": "date-time" }
       }

@@ -95,10 +95,11 @@ else
 fi
 
 echo "==> [4/5] Setting your identity in the manifest"
-"$VENV_DIR/bin/python" - "$WORKSPACE/agent.yaml" "$OWNER_EMAIL" "$MISSION" <<'PYEOF'
+"$VENV_DIR/bin/python" - "$WORKSPACE/agent.yaml" "$OWNER_EMAIL" "$MISSION" "$BREVET" "$WORKSPACE" <<'PYEOF'
 import sys, yaml
-p, email, mission = sys.argv[1], sys.argv[2], sys.argv[3]
+p, email, mission, brevet, ws = sys.argv[1:6]
 m = yaml.safe_load(open(p))
+before = yaml.safe_dump(m, sort_keys=False)
 if m.get("agent") in (None, "my_agent"):
     m["agent"] = "cowork_assistant"   # readable name in status and lockfiles
 ident = m.setdefault("identity_policy", {})
@@ -109,9 +110,16 @@ ident["mission_group"] = f"mission_group:{mission}"
 # Running this setup is the owner's consent to automatic capture: the MCP
 # server then tells sessions to record corrections without being asked.
 m.setdefault("runtime_safety", {}).setdefault("evidence", {})["auto_capture"] = True
-open(p, "w").write(yaml.safe_dump(m, sort_keys=False))
+after = yaml.safe_dump(m, sort_keys=False)
+if after != before:  # leave a released manifest untouched when nothing changes
+    open(p, "w").write(after)
 print(f"    agent: {m['agent']}   owner: human:{email}   mission group: mission_group:{mission}")
 print("    automatic capture: on (runtime_safety.evidence.auto_capture in agent.yaml)")
+if after != before and m.get("signature"):
+    print("    agent.yaml changed after its last release. Release it so sessions keep")
+    print("    receiving governed rules (brevet_active serves none until then):")
+    print(f"      {brevet} release --manifest-path {ws}/agent.yaml --workdir {ws}/.brevet \\")
+    print(f"        --to-version <next version> --approver human:{email}")
 PYEOF
 
 echo "==> [5/5] Registering the Brevet MCP server with Claude"

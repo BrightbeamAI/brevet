@@ -72,13 +72,15 @@ def wrap(text: str, size: float, maxw: float, bold: bool = False) -> list[str]:
 THEMES = {
     "light": {"bg": "#FFFFFF", "card": "#F5F6F8", "card2": "#FFFFFF", "border": "#D9DDE3",
                   "ink": "#12161B", "body": "#27303A", "muted": "#58626D",
-                  "ember": "#D64500", "amber": "#B86A00", "amberfill": "#FFF4E5",
+                  "ember": "#EA4700", "embertext": "#C93D00",
+                  "amber": "#B86A00", "amberfill": "#FFF4E5",
                   "green": "#1C8A4E", "blue": "#2F62B8", "violet": "#6E44B8",
                   "emberfill": "#FDEEE7", "greenfill": "#EAF6EF", "bluefill": "#EDF2FB",
                   "violetfill": "#F2EDFA", "pill": "#E9ECF0", "pilltext": "#2B333C"},
     "dark": {"bg": "#16181B", "card": "#1F2125", "card2": "#24272C", "border": "#383C43",
                  "ink": "#FFFFFF", "body": "#F1F3F6", "muted": "#C3C9D1",
-                 "ember": "#FF6A2E", "amber": "#FFAD33", "amberfill": "#2C2416",
+                 "ember": "#EA4700", "embertext": "#FF6A2E",
+                 "amber": "#FFAD33", "amberfill": "#2C2416",
                  "green": "#4FD486", "blue": "#93B6F2", "violet": "#BB9AF0",
                  "emberfill": "#2D1D17", "greenfill": "#17271E", "bluefill": "#1A2232",
                  "violetfill": "#231C2F", "pill": "#2C3036", "pilltext": "#E6E9ED"},
@@ -333,13 +335,16 @@ def example(theme):
         s.parts.append(f'<circle cx="{lx}" cy="{y + 30}" r="27" fill="{fill}" '
                        f'stroke="{col}" stroke-width="2.5"/>')
         s.icon(ic, lx - 17, y + 13, col, 0.95)
-        s.text(156, y + 22, when, 15, col, bold=True, maxw=300)
+        # Brightbeam ember (#EA4700) marks strokes, icons and large type; small type
+        # takes the design system's deeper ember so it stays readable
+        ink = t["embertext"] if col == t["ember"] else col
+        s.text(156, y + 22, when, 15, ink, bold=True, maxw=300)
         s.text(156, y + 52, head, 23, t["ink"], bold=True, maxw=680)
         s.para(156, y + 82, body, 18.5, t["body"], 640, 26, max_lines=3)
         cw = width(chip, 16, bold=True) + 32
         cx = 1200 - 56 - cw
         s.rect(cx, y + 34, cw, 38, fill, col, 1.8, rx=19)
-        s.text(cx + cw / 2, y + 59, chip, 16, col, bold=True, anchor="middle")
+        s.text(cx + cw / 2, y + 59, chip, 16, ink, bold=True, anchor="middle")
     s.text(600, s.h - 26, "The same lifecycle applies to every kind of capability: prompt "
            "rules, skills, tool bindings and eval cases.", 16.5, t["muted"], anchor="middle",
            maxw=1100)

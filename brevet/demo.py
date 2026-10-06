@@ -21,7 +21,7 @@ from brevet.models import AgentManifest
 from brevet.runner import EvalRunner
 
 REVIEWER = "human:quality.owner@example.com"
-MISSION_GROUP = "mission_group:right_first_time"
+MISSION_GROUP = "mission_group:quality_team"
 
 CASES = [
     # (deviation, human_final_severity)
@@ -111,9 +111,9 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
          f"{n_cases_promoted} eval cases compiled with it to Advisory.")
 
     # [4] evaluate before/after: the gate takes measured deltas -----------------
-    before = agent.evaluate()
-    agent.adapter.target = _evolved_stub  # simulate the promoted rule applied
-    after = agent.evaluate()
+    before = agent.evaluate(baseline=True)       # the agent as it is released now
+    agent.adapter.target = _evolved_stub         # simulate the promoted rule applied
+    after = agent.evaluate()                     # what the next release would ship
     gate = EvalRunner.compare(before, after)
     n_cases = before["n_cases"]
     echo(f"4. Evals: {n_cases - len(before['failures'])}/{n_cases} passed before the "
@@ -122,7 +122,7 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
 
     # [5] signed release ---------------------------------------------------------
     record = agent.release(to_version="0.2.0", channel="trial", approver=MISSION_GROUP,
-                           delta_in=gate["delta_held_in"], delta_out=gate["delta_held_out"],
+                           evals=(before, after),
                            rationale="First evolved release: vibration/CIP severity rule.")
     lock_n = len(record.promoted_capabilities)
     echo(f"5. Release: 0.1.0 -> 0.2.0 on the trial channel, signed; "

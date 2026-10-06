@@ -73,6 +73,7 @@ class PlaygroundSession:
         self.agent.manifest_path = self.root / "agent.yaml"
         self.done: list[str] = []
         self._runs: list = []
+        self._runs_bound: tuple | None = None
         self._cand_id: str | None = None
         self._gate: dict = {}
         self._seen_envelopes = 0
@@ -182,10 +183,11 @@ class PlaygroundSession:
                               "approver": MISSION_GROUP} for c in pending]}
 
     def _step_evals(self) -> dict:
-        before = self.agent.evaluate()
+        before = self.agent.evaluate(baseline=True)
         self.agent.adapter.target = _evolved_stub  # the promoted rule, applied
         after = self.agent.evaluate()
         self._gate = EvalRunner.compare(before, after)
+        self._runs_bound = (before, after)
         g = self._gate
         return {"summary": f"Override-compiled evals: held-in "
                            f"{before['held_in_pass_rate']:.2f} -> {after['held_in_pass_rate']:.2f}, "
@@ -196,9 +198,7 @@ class PlaygroundSession:
 
     def _step_release(self) -> dict:
         self.agent.release(to_version="0.2.0", channel="trial",
-                           approver=MISSION_GROUP,
-                           delta_in=self._gate["delta_held_in"],
-                           delta_out=self._gate["delta_held_out"],
+                           approver=MISSION_GROUP, evals=self._runs_bound,
                            rationale="Playground release: vibration/CIP severity rule.")
         lock = json.loads((self.root / "capabilities.lock").read_text(encoding="utf-8")) \
             if (self.root / "capabilities.lock").exists() else \

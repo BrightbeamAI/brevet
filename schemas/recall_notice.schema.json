@@ -12,7 +12,8 @@
     "reason": { "type": "string" },
     "reason_class": {
       "type": "string",
-      "enum": ["incorrect", "unsafe", "consent_withdrawn", "superseded", "stale", "compliance", "other"]
+      "enum": ["incorrect", "unsafe", "consent_withdrawn", "superseded", "stale", "compliance", "duplicate", "other"],
+      "description": "Why the capability is recalled. duplicate withdraws one byte-identical copy and leaves the content to the copy that stays; every other reason withdraws the content wherever it appears."
     },
     "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
     "issued_by": { "type": "string" },

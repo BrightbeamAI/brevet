@@ -59,11 +59,12 @@
       "properties": {
         "tools": {
           "type": "object",
+          "description": "The read/act contract the tool broker enforces. Names may be patterns (mcp__github__*); a name matching several tiers takes the strictest. Declaring any tool switches the broker on, and an undeclared tool is then refused.",
           "properties": {
-            "read": { "type": "array", "items": { "type": "string" } },
-            "suggest": { "type": "array", "items": { "type": "string" } },
-            "act": { "type": "array", "items": { "type": "string" } },
-            "controlled_act": { "type": "array", "items": { "type": "string" } }
+            "read": { "type": "array", "items": { "type": "string" }, "description": "Always allowed." },
+            "suggest": { "type": "array", "items": { "type": "string" }, "description": "Always allowed; a person decides on what they draft." },
+            "act": { "type": "array", "items": { "type": "string" }, "description": "Allowed on the trial and production channels, never in shadow." },
+            "controlled_act": { "type": "array", "items": { "type": "string" }, "description": "Allowed only in production, with a person's grant for each call." }
           }
         },
         "memory": {
@@ -82,7 +83,13 @@
             }
           }
         },
-        "capabilities_lock": { "type": "string", "default": "capabilities.lock", "description": "Path to the lockfile enumerating every learned capability bound into this release." }
+        "capabilities_lock": { "type": "string", "default": "capabilities.lock", "description": "Path to the lockfile enumerating every learned capability bound into this release." },
+        "harness_files": {
+          "type": ["array", "string"],
+          "items": { "type": "string" },
+          "description": "Files and folders whose change alters what the agent does (prompts, skills, tool code, MCP configuration). Relative to this manifest's folder, absolute, or starting with ~. Each release locks a digest of every file named.",
+          "examples": [["prompts/", "skills/", "CLAUDE.md", ".mcp.json"]]
+        }
       }
     },
 
@@ -107,7 +114,14 @@
           "properties": {
             "ledger": { "type": "string", "description": "chap:<workspace_id> for a live CHAP coordinator, or file:<path>.jsonl for the built-in hash-linked local ledger.", "examples": ["chap:wsp_deviation_cell_3", "file:./ledger.jsonl"] },
             "profiles": { "type": "array", "items": { "type": "string" }, "default": ["core/1.0", "review/1.0", "brevet/1.0"] },
-            "capture_overrides": { "type": "boolean", "default": true }
+            "capture_overrides": { "type": "boolean", "default": true },
+            "auto_capture": { "type": "boolean", "default": false, "description": "The workspace owner's standing consent for MCP sessions to record corrections without being asked." },
+            "anchors": {
+              "type": ["array", "string"],
+              "items": { "type": "string" },
+              "description": "Where the evidence chain's head is anchored outside the workspace after every governing step: file:<path> or chap:<workspace>@<url>.",
+              "examples": [["file:/Volumes/audit/brevet-anchors.jsonl", "chap:wsp_audit@https://chap.example.org"]]
+            }
           }
         },
         "evals": {
@@ -115,7 +129,8 @@
           "properties": {
             "regression_suite": { "type": ["string", "null"], "description": "Compiled from override history by `brevet compile-evals`." },
             "gate": { "type": "string", "enum": ["conservative"], "default": "conservative", "description": "conservative: delta_held_in >= 0 AND delta_held_out >= 0 AND max(deltas) > 0." },
-            "repeats": { "type": "integer", "minimum": 1, "default": 3 }
+            "repeats": { "type": "integer", "minimum": 1, "default": 3, "description": "How many times each eval case runs; its pass rate is the share of repeats that passed." },
+            "allow_attested": { "type": "boolean", "default": false, "description": "Accept production releases whose deltas are attested by the approver rather than measured by eval runs." }
           }
         },
         "dream": {
@@ -124,7 +139,25 @@
           "properties": {
             "enabled": { "type": "boolean", "default": true },
             "schedule": { "type": ["string", "null"], "examples": ["02:00"] },
-            "consent_scope": { "type": "string", "enum": ["consented_sources_only"], "default": "consented_sources_only" }
+            "consent_scope": { "type": "string", "enum": ["consented_sources_only", "all_recorded"], "default": "all_recorded", "description": "consented_sources_only: learn only from the owner and the identities under consented (with only the starter owner and nobody listed, every override counts); all_recorded: learn from every override. Withdrawn consent always excludes a participant." },
+            "consented": { "type": "array", "items": { "type": "string" }, "description": "Identities whose overrides the dream cycle may learn from, beside the owner." }
+          }
+        },
+        "serve_rules": { "type": "string", "enum": ["context", "prompt", "none"], "default": "context", "description": "How a wrapped agent receives its governed rules with each task: in the context dict, as a block before the task text, or not from Brevet." },
+        "approvals": {
+          "type": "object",
+          "description": "Where approver keys are checked: an identity source the organisation already trusts.",
+          "properties": {
+            "allowed_signers": { "type": "string", "description": "Path to an OpenSSH allowed-signers file mapping each approver's email to their public keys." },
+            "github": { "type": "boolean", "description": "Each approver names their GitHub account; the key must be one GitHub publishes for it." }
+          }
+        },
+        "harness": {
+          "type": "object",
+          "description": "What drift from the released harness does outside the shadow channel. Drift is always recorded once on the evidence chain.",
+          "properties": {
+            "on_drift": { "type": "string", "enum": ["block", "record"], "default": "block", "description": "For changed files and live-agent components." },
+            "env": { "type": "string", "enum": ["record", "block"], "default": "record", "description": "For library version changes." }
           }
         }
       }

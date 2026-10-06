@@ -25,7 +25,9 @@ Community frameworks register in one line:
 
 Adapters are duck-typed and defensive: they try the framework's stable public
 entry points in order and raise a clear error naming the seam if none fit.
-Brevet never modifies the wrapped object; execution stays in your framework.
+Execution stays in your framework. The only change Brevet makes to the
+wrapped object is to route its declared tools through the tool broker
+(``brevet.broker``), so each call is checked against the manifest.
 """
 
 from __future__ import annotations
@@ -84,6 +86,17 @@ class BaseAdapter:
 
     def invoke(self, task: str, context: dict[str, Any]) -> tuple[str, Trace]:
         raise NotImplementedError
+
+    def takes_context(self) -> bool:
+        """Whether the agent receives the context dict, and with it the
+        governed rules Brevet serves for each task."""
+        return False
+
+    def inventory(self) -> list:
+        """The wrapped agent's components for the harness bill of materials
+        (digests and labels only). Override for a more precise inventory."""
+        from brevet.harness import describe_agent
+        return describe_agent(self.target, framework=self.name)
 
     def _fail(self, tried: list[str]) -> tuple[str, Trace]:
         raise AdapterError(
@@ -159,6 +172,9 @@ def _accepts_context(fn: Callable) -> bool:
 
 @register_adapter("callable")
 class CallableAdapter(BaseAdapter):
+    def takes_context(self) -> bool:
+        return _accepts_context(self.target)
+
     def invoke(self, task: str, context: dict[str, Any]) -> tuple[str, Trace]:
         fn = self.target
         # The arity is settled before the call, so the user's function runs

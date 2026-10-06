@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brevet"
-version = "0.3.0"
+version = "0.4.0"
 description = "Change control for what AI agents learn: corrections become proposed rules, a named person approves each one, approved rules ship in signed versions, and any rule can be withdrawn. Wraps the agent framework you already use."
 # PyPI gets README_PYPI.md: README.md with links and figures made absolute and
 # pinned to the release tag (scripts/make_pypi_readme.py writes it).
@@ -12,7 +12,7 @@ readme = "README_PYPI.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-authors = [{ name = "Brightbeam AI", email = "oss@brightbeam.ai" }]
+authors = [{ name = "Brightbeam AI", email = "oss@brightbeam.com" }]
 keywords = ["agents", "governance", "self-evolving", "harness", "mcp", "chap", "metis", "audit", "capability"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -41,8 +41,10 @@ chap = ["chap-coordinator>=0.2.8"]
 metis = ["metis-memory>=0.1.0"]
 # Kept so that "brevet[mcp]" still installs; the SDK is now a core dependency.
 mcp = ["mcp>=1.10,<3"]
+# Passphrase-protected SSH keys as approver keys (brevet approver add --ssh-key).
+ssh = ["bcrypt>=4"]
 dev = ["pytest>=7", "ruff>=0.16,<0.17", "jsonschema>=4", "mcp>=1.10,<3",
-       "chap-coordinator>=0.2.8", "build>=1", "twine>=5"]
+       "chap-coordinator>=0.2.8", "bcrypt>=4", "build>=1", "twine>=5"]
 
 [project.scripts]
 brevet = "brevet.cli:main"

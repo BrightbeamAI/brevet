@@ -17,23 +17,44 @@ carry approver signatures:
 The approver register lives on the evidence chain as ``brevet.approver``
 envelopes. The first approver registers themselves; every later change must
 be signed by an approver already registered, and a new key must also sign its
-own registration, proving its holder has it. ``verify_approvals`` replays the
-chain and checks every signature against the register as it stood then.
+own registration, proving its holder has it. No member acting alone can
+weaken a mission group: changing its threshold, adding or removing a member,
+or replacing a member's key needs the group's own quorum. An approver can
+always withdraw their own key. ``verify_approvals`` replays the chain and
+checks every signature against the register as it stood then.
 
-A signature proves that the holder of a registered key signed. Making sure
-the right person holds that key (identity proofing, custody, loss) is the
-deployment's job.
+Who holds each key is checked against an identity source the organisation
+already trusts, when the manifest names one (``runtime_safety.approvals``):
+
+    allowed_signers: <path>   an OpenSSH allowed-signers file, the format git
+                              uses for signed commits, mapping each person's
+                              email to their public keys (``BREVET_ALLOWED_SIGNERS``
+                              names one too)
+    github: true              each approver names their GitHub account, and the
+                              key must be one of the keys GitHub publishes for it
+
+An approver key can be the person's existing SSH key (``brevet approver add
+--ssh-key``), so the key an organisation already verified is the one that
+signs. A registration whose key the identity source does not list is
+refused. Register at least two approvers, so a lost key can be revoked and
+replaced by the other.
 """
 
 from __future__ import annotations
 
+import base64
+import fnmatch
 import json
 import os
 import re
+import struct
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -109,21 +130,308 @@ def create_key(identity: str, passphrase: str,
     return approver
 
 
+def use_ssh_key(identity: str, ssh_key: str | Path,
+                directory: str | Path | None = None) -> str:
+    """Make a person's existing Ed25519 SSH key their approver key. Only the
+    path is recorded; the private key stays where it is, under its own
+    passphrase. Returns the public key."""
+    who = require_identity(identity, role="approver key holder")
+    if not who.startswith("human:"):
+        raise ValueError("approver keys belong to people: use a human:<who> identity")
+    path = Path(ssh_key).expanduser()
+    pub = path.with_name(path.name + ".pub")
+    if not path.exists():
+        raise FileNotFoundError(f"no SSH key at {path}")
+    if not pub.exists():
+        raise FileNotFoundError(f"the public half of {path} ({pub}) is missing")
+    public_key = ssh_to_hex(pub.read_text(encoding="utf-8"))
+    d = key_dir(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    meta = d / f"{_stem(who)}.json"
+    if meta.exists() or (d / f"{_stem(who)}.pem").exists():
+        raise FileExistsError(f"an approver key for {who} already exists in {d}")
+    meta.write_text(json.dumps({"identity": who, "public_key": public_key,
+                                "ssh_key": str(path.resolve()), "created_at": _now()},
+                               indent=2), encoding="utf-8")
+    return public_key
+
+
 def load_key(identity: str, passphrase: str,
              directory: str | Path | None = None) -> ApproverKey:
     """Unlock a person's approver key with their passphrase."""
     who = require_identity(identity, role="approver key holder")
-    pem_path = key_dir(directory) / f"{_stem(who)}.pem"
-    if not pem_path.exists():
-        raise FileNotFoundError(f"no approver key for {who} in {pem_path.parent}")
+    d = key_dir(directory)
+    pem_path = d / f"{_stem(who)}.pem"
+    meta_path = d / f"{_stem(who)}.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    if pem_path.exists():
+        data, load = pem_path.read_bytes(), serialization.load_pem_private_key
+    elif meta.get("ssh_key"):
+        data, load = Path(meta["ssh_key"]).read_bytes(), serialization.load_ssh_private_key
+    else:
+        raise FileNotFoundError(f"no approver key for {who} in {d}")
     try:
-        key = serialization.load_pem_private_key(
-            pem_path.read_bytes(), password=(passphrase or "").encode("utf-8"))
+        key = load(data, password=(passphrase or "").encode("utf-8") or None)
+    except UnsupportedAlgorithm:
+        raise RuntimeError('a passphrase-protected SSH key needs the bcrypt package: '
+                           'pip install "brevet[ssh]"') from None
     except (ValueError, TypeError):
         raise PermissionError(f"wrong passphrase for {who}") from None
     if not isinstance(key, Ed25519PrivateKey):
-        raise TypeError(f"{pem_path} is not an Ed25519 key")
-    return ApproverKey(who, key)
+        raise TypeError(f"the approver key for {who} is not an Ed25519 key")
+    approver = ApproverKey(who, key)
+    if meta.get("public_key") and meta["public_key"] != approver.public_key:
+        raise PermissionError(f"the key for {who} no longer matches the one recorded")
+    return approver
+
+
+# ------------------------------------------------------------- identity
+
+def ssh_to_hex(line: str) -> str:
+    """The raw Ed25519 public key in an OpenSSH ``ssh-ed25519 AAAA...`` line."""
+    parts = line.split()
+    idx = next((i for i, p in enumerate(parts) if p == "ssh-ed25519"), None)
+    if idx is None or idx + 1 >= len(parts):
+        raise ValueError("not an ssh-ed25519 public key")
+    blob = base64.b64decode(parts[idx + 1])
+    (n,) = struct.unpack(">I", blob[:4])
+    kind, rest = blob[4:4 + n], blob[4 + n:]
+    (m,) = struct.unpack(">I", rest[:4])
+    if kind != b"ssh-ed25519" or m != 32:
+        raise ValueError("not an ssh-ed25519 public key")
+    return rest[4:36].hex()
+
+
+def hex_to_ssh(public_key: str) -> str:
+    raw = bytes.fromhex(public_key)
+    blob = struct.pack(">I", 11) + b"ssh-ed25519" + struct.pack(">I", len(raw)) + raw
+    return "ssh-ed25519 " + base64.b64encode(blob).decode("ascii")
+
+
+_OPTION = re.compile(r'(cert-authority|(?:namespaces|valid-after|valid-before)="[^"]*"'
+                     r'|(?:namespaces|valid-after|valid-before)=[^\s,"]*)')
+_KEYTYPE = re.compile(r"^(ssh-|ecdsa-|sk-)")
+
+
+def _signer_line(line: str) -> dict[str, Any] | None:
+    """One allowed-signers entry: principals, options and the Ed25519 key."""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    head = re.match(r'("([^"]*)"|\S+)\s+(.*)', line)
+    if not head:
+        return None
+    principals, rest = (head.group(2) if head.group(2) is not None else head.group(1)), head.group(3)
+    options: dict[str, str] = {}
+    if not _KEYTYPE.match(rest):
+        parts = re.match(r'((?:[^\s"]|"[^"]*")+)\s+(.*)', rest)
+        if not parts:
+            return None
+        for item in re.findall(r'(?:[^,"]|"[^"]*")+', parts.group(1)):
+            if not _OPTION.fullmatch(item):
+                return None  # an option OpenSSH would not accept: the line vouches for nothing
+            key, _, value = item.partition("=")
+            options[key] = value.strip('"')
+        rest = parts.group(2)
+    if "cert-authority" in options:
+        return None  # a certificate authority vouches for certificates, not this raw key
+    tokens = rest.split()
+    if len(tokens) < 2 or tokens[0] != "ssh-ed25519":
+        return None
+    return {"principals": [p for p in principals.split(",") if p],
+            "key": ssh_to_hex(" ".join(tokens[:2])),
+            "namespaces": options.get("namespaces"),
+            "valid_after": options.get("valid-after"),
+            "valid_before": options.get("valid-before")}
+
+
+def allowed_signers(path: str | Path) -> list[dict[str, Any]]:
+    """The Ed25519 entries of an OpenSSH allowed-signers file (the format git
+    uses for signed commits). Malformed lines and certificate authorities are
+    skipped."""
+    out = []
+    for line in Path(path).expanduser().read_text(encoding="utf-8").splitlines():
+        try:
+            entry = _signer_line(line)
+        except (ValueError, struct.error, IndexError):
+            continue
+        if entry:
+            out.append(entry)
+    return out
+
+
+def _ssh_time(text: str | None, *, end: bool) -> Any:
+    """An allowed-signers timestamp: YYYYMMDD[HHMM[SS]], UTC with a Z."""
+    from datetime import datetime, timezone
+    if not text:
+        return None
+    utc = text.endswith(("Z", "z"))
+    digits = text.rstrip("Zz")
+    fmt = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}.get(len(digits))
+    if fmt is None:
+        raise ValueError(f"unreadable allowed-signers time {text!r}")
+    zone = timezone.utc if utc else datetime.now().astimezone().tzinfo
+    when = datetime.strptime(digits + "+0000", fmt + "%z").replace(tzinfo=zone)
+    if len(digits) == 8 and end:
+        when = when.replace(hour=23, minute=59, second=59)
+    return when
+
+
+def signer_listed(email: str, key: str, entries: list[dict[str, Any]]) -> bool:
+    """Whether an entry lists this key for this email now: its principals
+    match (``!`` negates), its namespaces allow Brevet (or git, whose file it
+    may be) and its validity window holds."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    for entry in entries:
+        if entry["key"] != key:
+            continue
+        positive = [p for p in entry["principals"] if not p.startswith("!")]
+        negative = [p[1:] for p in entry["principals"] if p.startswith("!")]
+        if not any(fnmatch.fnmatchcase(email.lower(), p.lower()) for p in positive) \
+                or any(fnmatch.fnmatchcase(email.lower(), p.lower()) for p in negative):
+            continue
+        spaces = entry.get("namespaces")
+        if spaces is not None and not {"brevet", "git"} & {n.strip() for n in spaces.split(",")}:
+            continue
+        try:
+            after = _ssh_time(entry.get("valid_after"), end=False)
+            before = _ssh_time(entry.get("valid_before"), end=True)
+        except ValueError:
+            continue
+        if (after and now < after) or (before and now > before):
+            continue
+        return True
+    return False
+
+
+def github_keys(user: str) -> set[str] | None:
+    """The Ed25519 keys GitHub publishes for an account, or None when GitHub
+    cannot be reached."""
+    try:
+        with urllib.request.urlopen(f"https://github.com/{user}.keys", timeout=10) as resp:
+            text = resp.read().decode("utf-8")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    keys = set()
+    for line in text.splitlines():
+        try:
+            keys.add(ssh_to_hex(line))
+        except ValueError:
+            continue
+    return keys
+
+
+def github_member(org: str, user: str) -> bool | None:
+    """Whether an account is a public member of a GitHub organisation, or
+    None when GitHub cannot be reached."""
+    url = f"https://api.github.com/orgs/{org}/public_members/{user}"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return resp.status == 204
+    except urllib.error.HTTPError as e:
+        return False if e.code == 404 else None
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+
+
+def identity_policy(workdir: str | Path,
+                    manifest_path: str | Path | None = None) -> dict[str, Any]:
+    """Where approver identities are checked. Sources outside the workspace
+    come first: ``~/.config/brevet/approvals.yaml`` (or ``BREVET_CONFIG_DIR``)
+    and ``BREVET_ALLOWED_SIGNERS``; then ``runtime_safety.approvals`` in the
+    released manifest (the manifest on disk only before any release), found
+    at ``manifest_path`` or, without one, beside the workspace folder. Every
+    allowed-signers file named must list a key. A manifest that is named but
+    missing, or cannot be read, stops the check rather than skipping it."""
+    import yaml
+
+    from brevet.anchor import config_dir
+    from brevet.ledger import Ledger
+    from brevet.releases import released_manifest
+    files: list[str] = []
+    policy: dict[str, Any] = {}
+
+    def take(source: dict[str, Any]) -> None:
+        if source.get("allowed_signers"):
+            files.append(str(source["allowed_signers"]))
+        for key in ("github", "github_org"):
+            if source.get(key):
+                policy[key] = source[key]
+
+    user = config_dir() / "approvals.yaml"
+    if user.exists():
+        take(yaml.safe_load(user.read_text(encoding="utf-8")) or {})
+    if os.environ.get("BREVET_ALLOWED_SIGNERS"):
+        files.append(os.environ["BREVET_ALLOWED_SIGNERS"])
+    wd = Path(workdir)
+    if manifest_path is not None:
+        mpath: Path | None = Path(manifest_path).expanduser()
+        if not mpath.exists():
+            raise PermissionError(f"cannot read the approver identity policy: the manifest "
+                                  f"{mpath} does not exist")
+    else:
+        mpath = next((m for m in (wd.parent / "agent.yaml", wd / "agent.yaml") if m.exists()),
+                     None)
+    if mpath is not None:
+        try:
+            manifest, _ = released_manifest(wd, mpath, Ledger(wd / "ledger.jsonl",
+                                                              anchoring=False))
+        except (yaml.YAMLError, ValueError) as e:
+            raise PermissionError(f"cannot read the approver identity policy: {e}") from None
+        take(((manifest.runtime_safety or {}).get("approvals")) or {})
+    if files:
+        policy["allowed_signers"] = files
+    return policy
+
+
+def identity_problems(payload: dict[str, Any], policy: dict[str, Any]) -> list[str]:
+    """Why the identity source does not vouch for a new approver key."""
+    who, key = payload.get("identity", ""), payload.get("public_key", "")
+    email = who.split(":", 1)[1] if ":" in who else who
+    problems = []
+    files = policy.get("allowed_signers") or []
+    for path in [files] if isinstance(files, str) else files:
+        try:
+            listed = signer_listed(email, key, allowed_signers(path))
+        except OSError as e:
+            problems.append(f"the allowed-signers file {path} cannot be read: {e}")
+            continue
+        if not listed:
+            problems.append(f"the allowed-signers file {path} does not list this key for {email}")
+    if policy.get("github") or policy.get("github_org"):
+        user = payload.get("github")
+        if not user:
+            problems.append(f"{who} must name their GitHub account (--github)")
+        else:
+            keys = github_keys(user)
+            if keys is None:
+                problems.append("GitHub could not be reached to verify the key; try again")
+            elif key not in keys:
+                problems.append(f"GitHub does not publish this key for {user}")
+            org = policy.get("github_org")
+            if org and keys is not None:
+                member = github_member(org, user)
+                if member is None:
+                    problems.append("GitHub could not be reached to check membership; try again")
+                elif not member:
+                    problems.append(f"{user} is not a public member of the {org} organisation")
+    return problems
+
+
+def identity_report(register: Register, policy: dict[str, Any]) -> dict[str, Any]:
+    """Every active approver's key checked against the identity source,
+    however it reached the register. ``unverified`` lists keys the source
+    does not vouch for; ``unchecked`` lists checks that could not be made
+    (GitHub unreachable)."""
+    unverified, unchecked = [], []
+    for who, entry in sorted(register.active().items()):
+        for problem in identity_problems({"identity": who, "public_key": entry["public_key"],
+                                          "github": entry.get("github")}, policy):
+            (unchecked if "could not be reached" in problem else unverified).append(
+                {"identity": who, "problem": problem})
+    return {"approvers": len(register.active()), "unverified": unverified,
+            "unchecked": unchecked}
 
 
 def local_identities(directory: str | Path | None = None) -> list[str]:
@@ -133,11 +441,12 @@ def local_identities(directory: str | Path | None = None) -> list[str]:
         return []
     out = []
     for meta in d.glob("*.json"):
-        if meta.with_suffix(".pem").exists():
-            try:
-                out.append(json.loads(meta.read_text(encoding="utf-8"))["identity"])
-            except (ValueError, KeyError):
-                continue
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if (meta.with_suffix(".pem").exists() or data.get("ssh_key")) and data.get("identity"):
+            out.append(data["identity"])
     return sorted(out)
 
 
@@ -152,11 +461,22 @@ def promotion_payload(capability_id: str, outcome: str, to_layer: str | None,
 
 def release_payload(agent: str, from_version: str | None, to_version: str, channel: str,
                     lockfile_hash: str, delta_held_in: Any, delta_held_out: Any,
-                    rationale: str, approver: str) -> dict[str, Any]:
+                    rationale: str, approver: str, manifest_hash: str,
+                    evals: dict[str, Any] | None = None,
+                    restores: str | None = None,
+                    set_aside: list[str] | None = None) -> dict[str, Any]:
     return {"kind": "brevet.release", "agent": agent, "from_version": from_version,
             "to_version": to_version, "channel": channel, "lockfile_hash": lockfile_hash,
-            "delta_held_in": delta_held_in, "delta_held_out": delta_held_out,
-            "rationale": rationale, "approver": approver}
+            "manifest_hash": manifest_hash, "delta_held_in": delta_held_in,
+            "delta_held_out": delta_held_out, "evals": evals, "restores": restores,
+            "set_aside": set_aside, "rationale": rationale, "approver": approver}
+
+
+def evals_of(eval_summary: dict[str, Any] | None) -> dict[str, Any]:
+    """What a release approval covers of its evidence: measured runs,
+    attested deltas or a rollback."""
+    es = eval_summary or {}
+    return {"source": es.get("source"), "before": es.get("before"), "after": es.get("after")}
 
 
 def recall_payload(capability_id: str, content_hash: str | None, reason: str,
@@ -179,7 +499,8 @@ def expected_from_envelope(kind: str, body: dict[str, Any]) -> dict[str, Any]:
                                body.get("to_version"), body.get("channel"),
                                body.get("lockfile_hash"), es.get("delta_held_in"),
                                es.get("delta_held_out"), body.get("rationale") or "",
-                               body.get("approved_by"))
+                               body.get("approved_by"), body.get("manifest_hash"),
+                               evals_of(es), body.get("restores"), body.get("set_aside"))
     return recall_payload(body.get("capability_id"), body.get("content_hash"),
                           body.get("reason"), body.get("reason_class"), body.get("severity"),
                           body.get("action"), body.get("issued_by"))
@@ -197,6 +518,7 @@ class Register:
 
     approvers: dict[str, dict[str, Any]] = field(default_factory=dict)
     thresholds: dict[str, int] = field(default_factory=dict)
+    head: str | None = None  # chain hash of the last register change applied
 
     def active(self) -> dict[str, dict[str, Any]]:
         return {i: a for i, a in self.approvers.items() if a["active"]}
@@ -231,15 +553,46 @@ class Register:
                 good.add(who)
         return good, problems
 
-    def change_problems(self, record: dict[str, Any]) -> list[str]:
-        """Check a register change against the register as it stands."""
+    def _quorum(self, group: str, signers: set[str]) -> list[str]:
+        """A mission group's consent to a change in it: its threshold of
+        signatures from its members as they stand before the change (all of
+        them, if fewer remain than the threshold)."""
+        members = self.members(group)
+        need = min(self.threshold(group), len(members))
+        have = len(signers & members)
+        if have < need:
+            return [(f"changing {group} needs {need} signature(s) from its members; "
+                     f"it has {have}")]
+        return []
+
+    def change_problems(self, record: dict[str, Any], *, history: bool = False) -> list[str]:
+        """Check a register change against the register as it stands.
+
+        No member acting alone can weaken a mission group: changing its
+        threshold, adding or removing a member, or replacing a member's key
+        needs the group's own quorum. An approver may always withdraw their
+        own key or leave a group, since that only gives up authority.
+        ``history`` replays a change recorded under 0.3.0 under the rules it
+        was made with; replay sets it only for records older than the chain's
+        first envelope written by 0.4.0 or later."""
         payload = record.get("payload") or {}
         if payload.get("kind") != "brevet.approver":
             return ["not a register change"]
         if record.get("payload_hash") != object_sha256(payload):
             return ["the payload hash does not match the payload"]
+        if history and not payload.get("group_quorum"):
+            return self._change_problems_0_3(payload, record.get("signatures") or [])
+        problems = self._change_problems_current(payload, record.get("signatures") or [])
+        if payload.get("after") != self.head:
+            # signed for another state of the register, or on another chain
+            problems.append("the approver register changed since this change was requested; "
+                            "request it again")
+        return problems
+
+    def _change_problems_current(self, payload: dict[str, Any],
+                                 sigs: list[dict[str, Any]]) -> list[str]:
         change, who = payload.get("change"), payload.get("identity")
-        sigs = record.get("signatures") or []
+        signers, problems = self.valid_signers(payload, sigs)
         if change == "add":
             possession = any(
                 s.get("identity") == who and s.get("public_key") == payload.get("public_key")
@@ -250,20 +603,74 @@ class Register:
             if not self.enabled:
                 return []  # the first approver registers themselves
             existing = self.active().get(who)
-            rotation = (existing is not None and
-                        sorted(existing["groups"]) == sorted(payload.get("groups") or []))
-            signers, _ = self.valid_signers(payload, sigs)
-            if rotation and signers:
-                return []
-            if signers - {who}:
-                return []
-            return [f"registering {who} needs the signature of another active approver"]
+            before = set(existing["groups"]) if existing else set()
+            after = set(payload.get("groups") or [])
+            out: list[str] = []
+            if existing is None:
+                if not signers - {who}:
+                    return [f"registering {who} needs the signature of another active approver"]
+            elif payload.get("public_key") != existing["public_key"] and who not in signers:
+                # a replacement key without the current one: the approver's
+                # groups recover it, or another approver if it has none
+                if before:
+                    out += [p for g in sorted(before) for p in self._quorum(g, signers)]
+                elif not signers - {who}:
+                    return [(f"replacing the key of {who} needs its current key or the "
+                             "signature of another active approver")]
+            for group in sorted(after - before):
+                if self.members(group):
+                    out += self._quorum(group, signers)
+                elif not signers - {who}:
+                    out.append(f"creating {group} needs the signature of another active approver")
+            if who not in signers:
+                out += [p for g in sorted(before - after) for p in self._quorum(g, signers)]
+            return out
         if change == "revoke":
             if who not in self.active():
                 return [f"{who} is not an active approver"]
             if len(self.active()) == 1:
                 return ["the last active approver cannot be revoked"]
-            signers, problems = self.valid_signers(payload, sigs)
+            if not signers:
+                return problems + ["a revocation needs an active approver's signature"]
+            if who in signers:
+                return []  # withdrawing one's own key
+            return [p for g in sorted(self.active()[who]["groups"]) for p in self._quorum(g, signers)]
+        if change == "threshold":
+            group, count = payload.get("group"), payload.get("threshold")
+            members = self.members(group or "")
+            if not isinstance(count, int) or count < 1 or count > len(members):
+                return [(f"{group} has {len(members)} active member(s); "
+                         f"its threshold must be between 1 and that number")]
+            if not signers & members:
+                return problems + [f"a threshold change needs the signature of a member of {group}"]
+            return self._quorum(group or "", signers)
+        return [f"unknown register change {change!r}"]
+
+    def _change_problems_0_3(self, payload: dict[str, Any],
+                             sigs: list[dict[str, Any]]) -> list[str]:
+        """The register rules of 0.3.0, for replaying changes made under it."""
+        change, who = payload.get("change"), payload.get("identity")
+        signers, problems = self.valid_signers(payload, sigs)
+        if change == "add":
+            possession = any(
+                s.get("identity") == who and s.get("public_key") == payload.get("public_key")
+                and Signer.verify(payload.get("public_key", ""), payload, s.get("signature", ""))
+                for s in sigs)
+            if not possession:
+                return [f"the new key for {who} must sign its own registration"]
+            if not self.enabled:
+                return []
+            existing = self.active().get(who)
+            rotation = (existing is not None and
+                        sorted(existing["groups"]) == sorted(payload.get("groups") or []))
+            if not (rotation and signers) and not (signers - {who}):
+                return [f"registering {who} needs the signature of another active approver"]
+            return []
+        if change == "revoke":
+            if who not in self.active():
+                return [f"{who} is not an active approver"]
+            if len(self.active()) == 1:
+                return ["the last active approver cannot be revoked"]
             return [] if signers else problems + ["a revocation needs an active approver's signature"]
         if change == "threshold":
             group, count = payload.get("group"), payload.get("threshold")
@@ -271,29 +678,36 @@ class Register:
             if not isinstance(count, int) or count < 1 or count > len(members):
                 return [(f"{group} has {len(members)} active member(s); "
                          f"its threshold must be between 1 and that number")]
-            signers, problems = self.valid_signers(payload, sigs)
-            if signers & members:
-                return []
-            return problems + [f"a threshold change needs the signature of a member of {group}"]
+            if not signers & members:
+                return problems + [f"a threshold change needs the signature of a member of {group}"]
+            return []
         return [f"unknown register change {change!r}"]
 
-    def apply(self, record: dict[str, Any]) -> None:
+    def apply(self, record: dict[str, Any], chain_hash: str | None = None) -> None:
         payload = record["payload"]
+        self.head = chain_hash
         if payload["change"] == "add":
             self.approvers[payload["identity"]] = {
                 "public_key": payload["public_key"],
-                "groups": sorted(payload.get("groups") or []), "active": True}
+                "groups": sorted(payload.get("groups") or []), "active": True,
+                "github": payload.get("github")}
         elif payload["change"] == "revoke":
             self.approvers[payload["identity"]]["active"] = False
         elif payload["change"] == "threshold":
             self.thresholds[payload["group"]] = payload["threshold"]
 
     def approval_problems(self, approval: dict[str, Any] | None,
-                          expected: dict[str, Any]) -> list[str]:
-        """Why ``approval`` does not authorise the decision ``expected``."""
+                          expected: dict[str, Any], *, history: bool = False) -> list[str]:
+        """Why ``approval`` does not authorise the decision ``expected``.
+        ``history`` accepts a release approval signed under 0.3.0, before they
+        covered the manifest; replay sets it only until the chain's first
+        release approval made under 0.4.0."""
         if not isinstance(approval, dict):
             return ["the decision carries no approval"]
         payload = approval.get("payload") or {}
+        if history and expected.get("kind") == "brevet.release" and "manifest_hash" not in payload:
+            expected = {k: v for k, v in expected.items()
+                        if k not in ("manifest_hash", "evals", "restores", "set_aside")}
         problems = []
         if approval.get("payload_hash") != object_sha256(payload):
             problems.append("the payload hash does not match the payload")
@@ -321,11 +735,48 @@ def register_from_chain(ledger) -> Register:
     """The register as the evidence chain defines it now; changes that fail
     their checks are ignored here and reported by ``verify_approvals``."""
     register = Register()
-    for env in ledger.read("brevet.approver"):
+    used: set[str] = set()
+    era = _Eras()
+    for env in ledger.read():
+        era.see(env)
+        if env.get("kind") != "brevet.approver":
+            continue
         body = env.get("body", {})
-        if not register.change_problems(body):
-            register.apply(body)
+        rid = (body.get("payload") or {}).get("request_id")
+        if rid in used:
+            continue  # a replayed change never applies twice
+        if not register.change_problems(body, history=era.register_history(body)):
+            register.apply(body, env.get("chain_hash"))
+            used.add(rid)
     return register
+
+
+class _Eras:
+    """Where a chain moved from 0.3.0's approval rules to 0.4.0's. Every
+    envelope written since 0.4.0 names the runtime that wrote it; records
+    older than the first such envelope (and than the first 0.4.0-style
+    record of their type) replay under the rules they were made with. After
+    that point only the current rules count, so a record in the old style
+    cannot be appended later to slip past them."""
+
+    def __init__(self) -> None:
+        self.sealed = False
+        self.quorum = False
+        self.manifest = False
+
+    def see(self, env: dict[str, Any]) -> None:
+        if env.get("runtime"):
+            self.sealed = True
+
+    def register_history(self, body: dict[str, Any]) -> bool:
+        if (body.get("payload") or {}).get("group_quorum"):
+            self.quorum = True
+        return not (self.quorum or self.sealed)
+
+    def release_history(self, approval: dict[str, Any] | None) -> bool:
+        if "manifest_hash" in ((approval or {}).get("payload") or {}):
+            self.manifest = True
+        return not (self.manifest or self.sealed)
 
 
 def used_request_ids(ledger) -> set[str]:
@@ -376,14 +827,21 @@ def verify_approvals(ledger) -> dict[str, Any]:
 
     Decisions taken before the first approver was registered count as
     unsigned; after that, each needs a valid approval used only once."""
+    return verify_envelopes(ledger.read())
+
+
+def verify_envelopes(envelopes) -> dict[str, Any]:
+    """``verify_approvals`` over envelopes already read, in chain order."""
     register = Register()
     used: set[str] = set()
+    era = _Eras()
     signed = unsigned = changes = 0
     invalid: list[dict[str, str]] = []
-    for env in ledger.read():
+    for env in envelopes:
+        era.see(env)
         kind, body = env.get("kind"), env.get("body") or {}
         if kind == "brevet.approver":
-            problems = register.change_problems(body)
+            problems = register.change_problems(body, history=era.register_history(body))
             rid = (body.get("payload") or {}).get("request_id")
             if rid in used:
                 problems = [*problems, f"request {rid} was applied twice"]
@@ -392,7 +850,7 @@ def verify_approvals(ledger) -> dict[str, Any]:
                                 "kind": kind, "problem": "; ".join(problems)})
                 continue
             used.add(rid)
-            register.apply(body)
+            register.apply(body, env.get("chain_hash"))
             changes += 1
         elif kind in DECISION_KINDS:
             approval = body.get("approval")
@@ -404,7 +862,9 @@ def verify_approvals(ledger) -> dict[str, Any]:
                 else:
                     unsigned += 1
                 continue
-            problems = register.approval_problems(approval, expected_from_envelope(kind, body))
+            history = era.release_history(approval) if kind == "brevet.release" else False
+            problems = register.approval_problems(approval, expected_from_envelope(kind, body),
+                                                  history=history)
             rid = ((approval or {}).get("payload") or {}).get("request_id")
             if rid and rid in used:
                 problems.append(f"request {rid} was applied twice")
@@ -490,29 +950,48 @@ def _approval(req: dict[str, Any]) -> dict[str, Any]:
 
 
 def request_register_add(workdir: str | Path, key: ApproverKey,
-                         groups: list[str] | None = None) -> dict[str, Any]:
+                         groups: list[str] | None = None,
+                         github: str | None = None,
+                         manifest_path: str | Path | None = None) -> dict[str, Any]:
     """Ask to register (or rotate) an approver key; the key signs its own
-    registration, so whoever approves it knows its holder has it."""
+    registration, so whoever approves it knows its holder has it. The
+    manifest named here is where the identity policy is read when the
+    registration is applied."""
     groups = sorted({require_identity(g, role="group", mission_group=True)
                      for g in (groups or [])})
-    req = create_request(workdir, {"kind": "brevet.approver", "change": "add",
-                                   "identity": key.identity, "public_key": key.public_key,
-                                   "groups": groups},
+    payload = {"kind": "brevet.approver", "change": "add", "identity": key.identity,
+               "public_key": key.public_key, "groups": groups, "group_quorum": True,
+               "after": _register_head(workdir)}
+    if github:
+        payload["github"] = github
+    req = create_request(workdir, payload, manifest_path=manifest_path,
                          summary=f"register {key.identity}"
                                  + (f" in {', '.join(groups)}" if groups else ""))
     return sign_request(workdir, req["request_id"], key)
 
 
+def _register_head(workdir: str | Path) -> str | None:
+    """The state of the register a change is requested for: the chain hash of
+    the last register change applied. A signed change applies only to that
+    state, so a request made earlier, or on another chain, cannot be replayed
+    once the register has moved on."""
+    from brevet.ledger import Ledger
+    return register_from_chain(Ledger(Path(workdir) / "ledger.jsonl", anchoring=False)).head
+
+
 def request_register_revoke(workdir: str | Path, identity: str) -> dict[str, Any]:
     who = require_identity(identity, role="approver")
     return create_request(workdir, {"kind": "brevet.approver", "change": "revoke",
-                                    "identity": who}, summary=f"revoke {who}")
+                                    "identity": who, "group_quorum": True,
+                                    "after": _register_head(workdir)},
+                          summary=f"revoke {who}")
 
 
 def request_threshold(workdir: str | Path, group: str, count: int) -> dict[str, Any]:
     g = require_identity(group, role="group", mission_group=True)
     return create_request(workdir, {"kind": "brevet.approver", "change": "threshold",
-                                    "group": g, "threshold": int(count)},
+                                    "group": g, "threshold": int(count), "group_quorum": True,
+                                    "after": _register_head(workdir)},
                           summary=f"require {count} signature(s) for {g}")
 
 
@@ -529,16 +1008,69 @@ def request_promotion(workdir: str | Path, store, capability_id: str, outcome: s
 
 def request_release(workdir: str | Path, manifest, store, *, to_version: str, channel: str,
                     approver: str, eval_summary: dict[str, Any] | None = None,
-                    rationale: str = "",
-                    manifest_path: str | Path | None = None) -> dict[str, Any]:
+                    rationale: str = "", manifest_path: str | Path | None = None,
+                    harness: tuple[list, list[str]] | None = None) -> dict[str, Any]:
+    """Ask for a release. The request keeps the harness inventory it was made
+    with, so the release ships exactly what was signed."""
+    from brevet.ledger import Ledger
     from brevet.lifecycle import prepare_release
     who, chan, lock, payload = prepare_release(
         manifest, store, to_version=to_version, channel=channel, approver=approver,
-        eval_summary=eval_summary, rationale=rationale)
-    return create_request(
+        eval_summary=eval_summary, rationale=rationale, harness=harness,
+        ledger=Ledger(Path(workdir) / "ledger.jsonl"))
+    ids = [r.capability_id for r in lock.resolved]
+    named = ", ".join(ids[:8]) + (f" and {len(ids) - 8} more" if len(ids) > 8 else "")
+    parts = f"{len(ids)} capabilities" + (f" ({named})" if ids else "")
+    if lock.harness:
+        parts += f" and {len(lock.harness)} harness components"
+    source = (eval_summary or {}).get("source", "attested")
+    evidence = ("eval runs " + f"{eval_summary['before']} -> {eval_summary['after']}"
+                if source == "measured" else "deltas attested by the approver")
+    req = create_request(
         workdir, payload, manifest_path=manifest_path,
         summary=f"release {manifest.agent} {manifest.version} -> {to_version} on the "
-                f"{chan.value} channel as {who}, locking {len(lock.resolved)} capabilities")
+                f"{chan.value} channel as {who}, locking {parts}; evidence: {evidence}")
+    changed = False
+    if harness is not None and "harness" not in req:
+        req["harness"] = {"components": [c.model_dump() for c in harness[0]],
+                          "sources": list(harness[1])}
+        changed = True
+    if eval_summary is not None and "eval_summary" not in req:
+        req["eval_summary"] = dict(eval_summary)
+        changed = True
+    if changed:
+        PendingRequests(workdir).save(req)
+    return req
+
+
+def request_rollback(workdir: str | Path, manifest, store, *, target: str, approver: str,
+                     as_version: str | None = None, channel: str | None = None,
+                     rationale: str = "", remove_added: bool = False,
+                     manifest_path: str | Path | None = None) -> dict[str, Any]:
+    """Ask to roll back to an earlier release (a release that names the
+    version it restores). The summary names every file it restores or sets
+    aside, so the approver sees exactly what changes on disk."""
+    from brevet.ledger import Ledger
+    from brevet.releases import prepare_rollback
+    wd = Path(workdir)
+    plan = prepare_rollback(wd, Ledger(wd / "ledger.jsonl"), store,
+                            Path(manifest_path) if manifest_path else None, manifest,
+                            target=target, approver=approver, as_version=as_version,
+                            channel=channel, rationale=rationale, remove_added=remove_added)
+    left_out = (f"; leaving out {', '.join(d['capability_id'] for d in plan['dropped'])}"
+                if plan["dropped"] else "")
+    files = ", ".join(r["label"] for r in plan["restore"]) or "none"
+    aside = f"; setting aside {', '.join(plan['added'])}" if remove_added and plan["added"] else ""
+    req = create_request(
+        workdir, plan["payload"], manifest_path=manifest_path,
+        summary=f"roll {manifest.agent} back to release {target} as {plan['version']} on the "
+                f"{plan['channel']} channel as {plan['approver']}, locking "
+                f"{len(plan['lock'].resolved)} capabilities and restoring files: "
+                f"{files}{aside}{left_out}")
+    if remove_added and not req.get("remove_added"):
+        req["remove_added"] = True
+        PendingRequests(workdir).save(req)
+    return req
 
 
 def request_recall(workdir: str | Path, store, capability_id: str, *, reason: str,
@@ -588,8 +1120,11 @@ def _apply(wd: Path, store_reqs: PendingRequests, req: dict[str, Any],
 
     if kind == "brevet.approver":
         problems = register.change_problems(approval)
+        if payload.get("change") == "add" and not problems:
+            problems = identity_problems(
+                payload, identity_policy(wd, manifest_path or req.get("manifest_path")))
         if problems:
-            if any("needs the signature" in p or "needs an active" in p for p in problems):
+            if all(" needs " in p for p in problems):
                 return {"request_id": request_id, "status": "pending", "needs": problems}
             raise PermissionError("register change rejected: " + "; ".join(problems))
         ledger.append("brevet.approver", approval)
@@ -611,21 +1146,51 @@ def _apply(wd: Path, store_reqs: PendingRequests, req: dict[str, Any],
             result = {"capability_id": cap.capability_id,
                       "validation_state": cap.validation_state.value,
                       "authority_layer": cap.authority_layer.value}
-        elif kind == "brevet.release":
+        elif kind == "brevet.release" and payload.get("restores"):
+            from brevet.releases import rollback
+
             mpath = Path(manifest_path or req.get("manifest_path") or "agent.yaml")
             manifest = AgentManifest(**yaml.safe_load(mpath.read_text(encoding="utf-8")))
+            manifest, lock, record, plan = rollback(
+                wd, ledger, store, Signer(wd / "keys" / "brevet_ed25519.pem"), mpath, manifest,
+                target=payload["restores"], approver=payload["approver"],
+                as_version=payload["to_version"], channel=payload["channel"],
+                rationale=payload.get("rationale", ""), approval=approval,
+                remove_added=bool(req.get("remove_added")))
+            result = {"from": record.from_version, "to": record.to_version,
+                      "restores": payload["restores"], "channel": record.channel.value,
+                      "locked": len(lock.resolved), "restored_files": plan["restored_files"]}
+        elif kind == "brevet.release":
+            from brevet.harness import compare, file_components
+            from brevet.models import HarnessComponent
+            from brevet.releases import publish
+
+            mpath = Path(manifest_path or req.get("manifest_path") or "agent.yaml")
+            manifest = AgentManifest(**yaml.safe_load(mpath.read_text(encoding="utf-8")))
+            harness = None
+            if req.get("harness"):
+                locked = [HarnessComponent(**c) for c in req["harness"]["components"]]
+                sources = req["harness"]["sources"]
+                if "files" in sources:
+                    live = file_components(manifest, mpath.parent,
+                                           exclude=[mpath, mpath.parent / "capabilities.lock"],
+                                           exclude_dirs=[wd])
+                    changed = compare([c for c in locked if c.kind == "file"], live)
+                    if changed:
+                        raise PermissionError(
+                            "harness files changed since the release was requested: "
+                            + ", ".join(c["component_id"] for c in changed))
+                harness = (locked, sources)
+            summary = req.get("eval_summary") or {
+                "source": (payload.get("evals") or {}).get("source") or "attested",
+                "delta_held_in": payload["delta_held_in"],
+                "delta_held_out": payload["delta_held_out"], "gate": "conservative"}
             manifest, lock, record = lifecycle.release(
                 manifest, store, ledger, Signer(wd / "keys" / "brevet_ed25519.pem"),
                 to_version=payload["to_version"], channel=payload["channel"],
-                approver=payload["approver"],
-                eval_summary={"delta_held_in": payload["delta_held_in"],
-                              "delta_held_out": payload["delta_held_out"],
-                              "gate": "conservative"},
-                rationale=payload.get("rationale", ""), approval=approval)
-            mpath.write_text(yaml.safe_dump(manifest.model_dump(exclude_none=False),
-                                            sort_keys=False), encoding="utf-8")
-            (mpath.parent / "capabilities.lock").write_text(lock.model_dump_json(indent=2),
-                                                             encoding="utf-8")
+                approver=payload["approver"], eval_summary=summary,
+                rationale=payload.get("rationale", ""), approval=approval, harness=harness)
+            publish(wd, manifest, lock, mpath)
             result = {"from": record.from_version, "to": record.to_version,
                       "channel": record.channel.value, "locked": len(lock.resolved)}
         elif kind == "brevet.recall":

@@ -57,9 +57,9 @@ step is recorded on a hash-linked **evidence chain**.
 
 | Question | How Brevet answers it |
 |---|---|
-| **What has the agent learned?** | Every release carries `capabilities.lock`, the capability bill of materials: each learned capability, where it came from and the hash of its exact content. |
-| **Who approved it?** | Each capability records the human or mission group that promoted it at the dawn gate, with the overrides that justified it. |
-| **How do we take it back?** | Recall it. Brevet flags every release that shipped it and records why it was recalled. |
+| **What has the agent learned?** | Every release carries `capabilities.lock`, its bill of materials: each learned capability, where it came from and the hash of its exact content, plus the harness the release runs with (prompts, skills, tools, settings and libraries). |
+| **Who approved it?** | Each capability records the human or mission group that promoted it at the dawn gate, with the overrides that justified it, signed by their registered key once the workspace requires it. |
+| **How do we take it back?** | Recall it, or roll back to an earlier release. Brevet flags every release that shipped it, withholds it from running agents and records each agent's acknowledgement. |
 
 ## A concrete example
 
@@ -87,7 +87,6 @@ agent object instead.
 
 ```python
 import brevet
-from brevet.runner import EvalRunner
 
 agent = brevet.wrap(triage_agent)          # wrap the agent you already have
 
@@ -104,20 +103,20 @@ agent.dream()
 candidates = agent.dawn()                   # the dawn queue
 rule = next(c for c in candidates if c.kind == "prompt_rule")
 
-# Dawn: a named mission group promotes it. A dream:* approver is rejected.
-agent.dawn(decide=(rule.capability_id, "promote"),
-           approver="mission_group:quality_team")
+# Dawn: a named mission group promotes the rule and the eval cases compiled
+# with it. A dream:* approver is rejected.
+for cap in candidates:
+    agent.dawn(decide=(cap.capability_id, "promote"),
+               approver="mission_group:quality_team")
 
-# Evals: replay the overrides as tests, before and after the change.
-before = agent.evaluate()
-#    ...update your agent so that it follows the promoted rule...
+# Evals: replay the overrides as tests, on the current release and on the next.
+before = agent.evaluate(baseline=True)
+#    ...an agent that takes a context argument now receives the promoted rule...
 after = agent.evaluate()
 
-# Release: refused unless the conservative gate passes.
-check = EvalRunner.compare(before, after)
+# Release: bound to those two runs, and refused unless the conservative gate passes.
 agent.release(to_version="0.2.0", channel="trial",
-              approver="mission_group:quality_team",
-              delta_in=check["delta_held_in"], delta_out=check["delta_held_out"])
+              approver="mission_group:quality_team", evals=(before, after))
 
 # Recall: the rule proves wrong. Then verify the whole evidence chain.
 agent.recall(rule.capability_id, reason="The vibration came from a faulty sensor.",
@@ -147,20 +146,23 @@ run the example above, clone the repository and run
 
 `brevet.wrap()` recognises agents built with LangGraph, the Claude Agent SDK,
 DeepAgents, AutoGen, LlamaIndex, Pydantic AI, the Google Agent Development Kit,
-CrewAI and the OpenAI Agents SDK, and it accepts any Python function. Brevet
-never changes the agent it wraps. `uvx brevet mcp` offers the whole loop to any
+CrewAI and the OpenAI Agents SDK, and it accepts any Python function. Your
+framework keeps running the agent; Brevet serves it its governed rules and
+checks each declared tool call. `uvx brevet mcp` offers the whole loop to any
 MCP client ([ABOUT.md](ABOUT.md#the-mcp-server) shows the setup), and
 [examples/claude-cowork](examples/claude-cowork) uses it to govern what Claude
 itself learns.
 
-## Project status
+## Built for production
 
-Brevet implements the whole loop and keeps every record, and a workspace can
-require every decision to be signed by its registered approvers. Some
-protections depend on the system you deploy it in, such as verifying who holds
-each key and anchoring the evidence chain outside the machine.
-[ABOUT.md](ABOUT.md#project-status) lists them, and the [paper](#citation) sets
-them out in full.
+Every decision can require the signatures of approvers whose keys are checked
+against your allowed-signers file or GitHub. Releases are bound to the eval
+runs behind their numbers, and any release can be rolled back. A recalled rule
+is withheld from running agents, which confirm it on the record. A tool broker
+checks the agent's tool calls against the tiers the manifest grants, and the
+evidence chain is anchored outside the workspace, so even a rewritten chain is
+caught.
+[ABOUT.md](ABOUT.md#running-in-production) shows how to switch each one on.
 
 ## Learn more
 
@@ -169,7 +171,8 @@ them out in full.
   and how the repository is organised.
 - **[GLOSSARY.md](GLOSSARY.md)**: every term, with its plain meaning first.
 - **[SPEC.md](SPEC.md)**: the rules any implementation must follow.
-- **[BENCHMARK.md](BENCHMARK.md)**: the proposed governed-adaptation benchmark.
+- **[BENCHMARK.md](BENCHMARK.md)**: the governed-adaptation benchmark;
+  `brevet benchmark` scores a workspace on its four axes.
 
 ## Citation
 

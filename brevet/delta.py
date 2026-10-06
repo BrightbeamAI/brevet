@@ -127,7 +127,7 @@ def mine(
 
 
 def dream_cycle(ledger, store, *, model_family: str | None = None,
-                assist=None) -> dict[str, Any]:
+                assist=None, consent=None) -> dict[str, Any]:
     """Run one dream cycle and add only what is new.
 
     A cluster is not proposed again when the same overrides already
@@ -135,10 +135,13 @@ def dream_cycle(ledger, store, *, model_family: str | None = None,
     rejected or recalled), or when a capability with identical content
     exists. A candidate built from more overrides than a pending one
     supersedes it. Eval cases are compiled once per substituting override
-    that carries the expert's final."""
+    that carries the expert's final. ``consent`` (from
+    ``brevet.consent.allowed``) leaves out the overrides of participants the
+    dream cycle may not learn from."""
     from brevet.evals import compile_suite
 
-    overrides = load_overrides(ledger)
+    recorded = load_overrides(ledger)
+    overrides = [o for o in recorded if consent is None or consent(o.participant)]
     by_id = {o.override_id: o for o in overrides}
     existing = list(store.all().values())
 
@@ -188,7 +191,7 @@ def dream_cycle(ledger, store, *, model_family: str | None = None,
         compiled.add(key)
         cases += 1
     return {"overrides": len(overrides), "candidates": added, "eval_cases": cases,
-            "superseded": superseded}
+            "superseded": superseded, "without_consent": len(recorded) - len(overrides)}
 
 
 def _family_of(sig: FailureSignature) -> str:

@@ -7,7 +7,8 @@ major, not minor. This script follows that override through the loop:
 
     1. work and override   the reviewer corrects the draft and says why
     2. dream               recurring overrides become a candidate rule
-    3. dawn                a named mission group promotes the candidate
+    3. dawn                a named mission group promotes the candidate and its
+                           eval cases
     4. evals               the overrides replay as tests; the conservative gate
     5. release             0.2.0 ships, signed, with its capabilities.lock
     6. recall              the rule proves wrong and is recalled
@@ -92,15 +93,19 @@ def main() -> None:
     except PermissionError:
         print("3. Dawn: rejected an approval from dream:nightly "
               "(machine identities cannot promote).")
-    # ...but a named mission group can.
+    # ...but a named mission group can. It promotes the rule and the eval cases
+    # compiled with it, so the release locks the tests it was measured on.
     promoted = agent.dawn(decide=(rule.capability_id, "promote"), approver=MISSION_GROUP)
-    print(f"   Dawn: promoted to {promoted.authority_layer.value.capitalize()} "
-          f"by {MISSION_GROUP}.")
+    cases = [c for c in candidates if c.kind == "eval_case"]
+    for case in cases:
+        agent.dawn(decide=(case.capability_id, "promote"), approver=MISSION_GROUP)
+    print(f"   Dawn: {MISSION_GROUP} promoted the rule and the {len(cases)} eval cases "
+          f"compiled with it to {promoted.authority_layer.value.capitalize()}.")
 
     # 4. Evals. Replay the overrides as tests, before and after the change.
     #    In practice your agent loads the promoted rule into its instructions;
     #    here we swap in a version of the agent that follows it.
-    before = agent.evaluate()
+    before = agent.evaluate(baseline=True)
     agent.adapter.target = triage_agent_v2
     after = agent.evaluate()
     check = EvalRunner.compare(before, after)
@@ -114,7 +119,7 @@ def main() -> None:
     # 5. Release. 0.2.0 ships, signed, with its capability bill of materials.
     release = agent.release(
         to_version="0.2.0", channel="trial", approver=MISSION_GROUP,
-        delta_in=check["delta_held_in"], delta_out=check["delta_held_out"],
+        evals=(before, after),  # the release is bound to the runs behind its numbers
         rationale="Adds the vibration-during-cleaning rule.",
     )
     n = len(release.promoted_capabilities)
