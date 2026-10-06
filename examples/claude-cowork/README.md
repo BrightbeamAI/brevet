@@ -18,17 +18,14 @@ normal conversation are the only input it needs.
 | Override | When you change Claude's draft and use your own version, Claude records the pair (its first draft and your final) as an override, with your one-line reason and a tag, without being asked. |
 | Dream | When you ask, overrides that recur (three or more with the same tag and task family) become candidate rules. Candidates have no authority. |
 | Dawn | You promote, hold or reject each candidate in plain chat. Your identity is recorded, and approvals under machine identities are rejected. |
-| Release | Promoted rules go into a signed release with its `capabilities.lock` and are written to one governed rules file that future sessions load. |
-| Recall | One command recalls a rule; the governed rules file is regenerated without it. |
+| Evals | Trial and production releases need the conservative gate: you supply the before-and-after deltas, measured or attested, and neither half of the eval cases may get worse. |
+| Release | Promoted rules go into a signed release with its `capabilities.lock`. Sessions fetch them with `brevet_active`, which checks the chain, the lock, the signature and each rule before serving it. |
+| Recall | One command recalls a rule; `brevet_active` stops serving it, and later releases leave it out. |
 | Verify | Any session can replay the evidence chain to detect edits to its history. |
 
-Claude's standing instructions (the capture skill) tell it to load
-learned rules only from the governed rules file, only after the evidence
-chain verifies, and never to persist learned rules through memory or any
-other side channel. A rule lasts only if you promoted it at dawn.
+Claude's standing instructions (the capture skill) tell it to take learned rules only from `brevet_active`, which serves nothing when the evidence chain or the release fails its checks, and never to persist learned rules through memory or any other side channel. A rule is meant to last only if you promoted it at dawn. When the workspace folder is mounted, `tools/brevet_cowork.py apply` also writes the active rules to `governed/ACTIVE_CAPABILITIES.md` as a readable copy.
 
-Capture is unprompted by design: you should never have to say "log
-this". Sessions call `brevet_verify` and `brevet_active` at the start,
+Capture is unprompted by design: setup turns on automatic capture for this workspace (`auto_capture: true` in `agent.yaml`), so you never have to say "log this". Sessions call `brevet_verify` and `brevet_active` at the start,
 so the rules you approved are followed from the first answer, with no
 folder mount required.
 
@@ -45,11 +42,7 @@ once, through whichever surface it already has:
   approval counts as a draft accepted verbatim. Brevet remains the learning
   gate.
 
-Running both is safe: an override already recorded in the session is
-skipped rather than counted twice, and the import reports
-`duplicates_skipped`. This matters because an override counted twice would
-make a one-off look like recurrence and produce a candidate from evidence
-that never recurred.
+Running both is safe: a CHAP verdict that matches an override already recorded in the session is skipped rather than counted twice, and the import reports `duplicates_skipped`. Identical corrections on different tasks still all count. This matters because an override counted twice would make a one-off look like recurrence, and a recurrence dropped would hide a real pattern.
 
 **Reaching a CHAP coordinator that is only available through MCP.** If
 your CHAP coordinator is a database file or a URL, point
@@ -74,10 +67,7 @@ tools under `permissions.allow` covers sessions in that project.
 
 Brevet cannot sit between you and Claude the way it wraps a Python agent,
 because the assistant's harness belongs to its vendor, not to you. So the
-controls here detect problems rather than prevent them. Sessions verify the
-evidence chain and the governed rules file before following any learned
-rule, and a mismatch
-shows up rather than being blocked. The records are complete: who promoted
+controls here detect problems rather than prevent them. Sessions take learned rules from `brevet_active`, which checks the evidence chain, the lock, the release signature and each rule's content before serving anything, and a mismatch shows up rather than being blocked. The records are complete: who promoted
 each rule, what each release contains and what was recalled. But a passing
 check cannot prove that Claude read only the governed rules file, or that it
 stopped using a recalled rule already in its context. The paper's case study
@@ -112,10 +102,9 @@ $ bash examples/claude-cowork/setup.sh --owner you@example.com
 
 Options: `--workspace DIR` (default `~/brevet-cowork`),
 `--mission-group NAME` (default `review_board`), `--claude-config PATH`,
-and `--chap-workspace wsp_id` to enable the CHAP relay described below.
+and `--chap-workspace wsp_id` to enable the CHAP relay described above.
 
-The script creates the workspace, sets your identity in the signed
-manifest, registers the MCP server, and writes
+The script creates the workspace, sets your identity in the manifest (it is signed at your first release), turns on automatic capture, registers the MCP server, and writes
 `<workspace>/.claude/settings.json` pre-approving the `brevet_*` tools.
 
 Then:
@@ -146,12 +135,7 @@ so escalations come first and send it. Claude records one override,
 tagged `escalations-first`, with your one-line reason. Wednesday and
 Friday: the same correction, recorded the same way. Saturday: you say
 "brevet dream, show me pending", and one candidate rule appears, built
-from all three overrides. You say "promote it as
-mission_group:review_board", then "release 0.2.0 on trial". The rule is
-signed into `capabilities.lock` and written to the governed rules file; from now on,
-summaries start with escalations because you approved that, and the
-record says so. A month later, if the rule stops being right:
-"recall it", and it is provably gone.
+from all three overrides. You say "promote it as mission_group:review_board", then "release 0.2.0 on trial", confirming the before-and-after deltas you measured or attest. The release is signed, `capabilities.lock` lists the rule, and `brevet_active` serves it from the next session; from now on, summaries start with escalations because you approved that, and the record says so. A month later, if the rule stops being right: "recall it", and `brevet_active` stops serving it, with the recall on the record.
 
 At any point: "what have I approved and why?" is answered from the
 ledger, with capability ids, approvers, and rationales.
@@ -160,7 +144,7 @@ ledger, with capability ids, approvers, and rationales.
 
 Everything lives in your workspace, on your machine: the ledger
 (`.brevet/ledger.jsonl`, append-only, hash-linked), the capability
-store, the Ed25519 keys, `capabilities.lock` and the governed rules file.
+store, the Ed25519 key, `capabilities.lock` and the governed rules file.
 Recorded content is the task description, Claude's draft, the diff to
 your final, your one-line rationale, and tags, attributed to the owner
 identity in `agent.yaml`. Nothing is sent anywhere.

@@ -1,9 +1,10 @@
 """Running the evals.
 
 Runs the override-compiled eval cases against the wrapped agent. Cases are
-split into held-in and held-out halves by content hash, the agent replays
-each stored task, and a scorer compares its answer with the expert's
-final.
+sorted by content hash and dealt alternately into held-in and held-out
+halves, so both halves have cases whenever there are two or more. The agent
+replays each stored task, and a scorer compares its answer with the
+expert's final.
 
 Two runs make a gate decision: ``compare(before, after)`` returns the
 deltas the conservative gate needs. Every run is recorded as a
@@ -41,18 +42,24 @@ class EvalRunner:
                 continue
             if cap.revocation_status.value != "active":
                 continue
-            payload = json.loads(cap.content)
-            task_body = tasks.get(payload.get("task_id"), {})
-            task_text = task_body.get("task")
-            if not task_text:
+            try:
+                payload = json.loads(cap.content)
+            except ValueError:
                 continue
+            task_text = tasks.get(payload.get("task_id"), {}).get("task")
+            expected = payload.get("expected_final")
+            if not task_text or not expected:
+                continue  # nothing to replay, or no expert final to compare with
             cases.append({
                 "capability_id": cap.capability_id,
                 "task": task_text,
                 "task_family": payload.get("task_family"),
-                "expected": payload.get("expected_final", ""),
-                "split": "held_out" if int(cap.content_hash[-1], 16) % 2 else "held_in",
+                "expected": expected,
+                "content_hash": cap.content_hash,
             })
+        cases.sort(key=lambda c: c["content_hash"])
+        for i, case in enumerate(cases):
+            case["split"] = "held_in" if i % 2 == 0 else "held_out"
         return cases
 
     def run(self) -> dict[str, Any]:
@@ -68,6 +75,8 @@ class EvalRunner:
 
         summary = {
             "n_cases": len(results),
+            "n_held_in": sum(r["split"] == "held_in" for r in results),
+            "n_held_out": sum(r["split"] == "held_out" for r in results),
             "held_in_pass_rate": rate("held_in"),
             "held_out_pass_rate": rate("held_out"),
             "failures": [r["capability_id"] for r in results if not r["passed"]],

@@ -50,7 +50,7 @@ from brevet.models import (
 )
 from brevet.shell import BrevetAgent, BrevetShell, RunResult, wrap
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "AgentManifest",

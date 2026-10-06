@@ -3,8 +3,8 @@
 The five JSON Schemas in `schemas/` define Brevet's records. This document
 states the rules a conforming deployment must enforce around them, using
 MUST and SHOULD in their usual standards sense. For plain-language
-definitions, see [GLOSSARY.md](GLOSSARY.md). Version 0.1 of this repository
-implements the records and steps; the *Project status* section of
+definitions, see [GLOSSARY.md](GLOSSARY.md). This repository implements the
+records and steps; the *Project status* section of
 [ABOUT.md](ABOUT.md#project-status) and the paper's implementation table list
 the requirements a deployment adds.
 
@@ -65,7 +65,7 @@ return a confident-looking precedent.
   version. Outside the `shadow` channel, unsigned or hash-mismatched
   manifests MUST be refused. The waking agent MUST NOT modify its own
   harness, lockfile, or capability store authority fields.
-- **Sleeping (the dream cycle):** offline, the delta engine computes the
+- **Sleeping (the dream cycle):** offline, the dream cycle computes the
   difference signal `Δ = enacted ⊖ specified` over matched episodes (traces
   and overrides against the signed harness and procedures), clusters
   recurring divergences by failure signature
@@ -73,7 +73,7 @@ return a confident-looking precedent.
   A candidate MUST record provenance to its supporting traces/overrides and a
   recurrence count. Proposal drafting MAY use a model (local by default);
   model assistance MUST be logged and its output treated as a draft.
-- **Dawn (promotion):** a human or mission group reviews ranked candidates and issues one of
+- **Dawn (promotion):** a human or mission group reviews candidates and issues one of
   `promote | hold | reject | re_elicit`. Every decision is an evidence
   envelope.
 
@@ -81,7 +81,8 @@ return a confident-looking precedent.
 
 Regression suites are compiled from override history: a substituting override
 (`intent_preserved=false`) yields a regression case whose expected outcome is
-the human's final; a refining override yields a rubric case. Eval cases are
+the human's final; a refining override MAY yield a rubric case (this
+repository compiles substituting overrides only). Eval cases are
 capability objects and carry provenance. Before any non-shadow release, the
 candidate set MUST pass the conservative gate:
 
@@ -100,7 +101,8 @@ A release: (1) resolves all `releasable` capabilities into a lockfile with
 per-entry `content_hash`, `conditions_digest`, approver, and promotion refs;
 (2) signs a commitment to both the manifest and the lockfile digest
 (Ed25519 over an agreed canonical encoding, RFC 8785 for interoperability,
-signature excluded from the signed payload); (3) records a release envelope
+signature excluded from the signed payload; this repository uses sorted-key
+compact JSON, which matches RFC 8785 except for some float forms); (3) records a release envelope
 with `rollback_to`. Channels SHOULD progress `shadow → trial → production`.
 A channel label or rollback target records an intended action; it does not
 deploy or restore an agent by itself.
@@ -108,7 +110,7 @@ deploy or restore an agent by itself.
 ## 7. Recall
 
 A recall notice revokes one capability by id and content hash, enumerates
-every release whose lockfile contains it, and drives an action:
+every release whose lockfile contains it, and records the action requested:
 `quarantine | rollback | re_review`. After recall, the capability MUST fail
 `releasable`, and its content hash MUST be excluded from every future lockfile
 while the recall is in force, so identical content cannot return under a new
@@ -120,8 +122,8 @@ SHOULD be traced through their provenance and reviewed.
 ## 8. Evidence
 
 All envelopes (`brevet.task`, `brevet.artefact`, `brevet.override`,
-`brevet.candidate`, `brevet.promotion`, `brevet.release`, `brevet.recall`,
-`brevet.eval_run`) are append-only and hash-linked
+`brevet.candidate`, `brevet.model_assist`, `brevet.promotion`,
+`brevet.release`, `brevet.recall`, `brevet.eval_run`) are append-only and hash-linked
 (`sha256(canonical(envelope) || prev_hash)`), independently replayable, and
 CHAP-compatible: when a live CHAP coordinator is configured, envelopes are
 mirrored to it; the local chain remains the offline-verifiable copy. Replay

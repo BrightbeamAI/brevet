@@ -121,7 +121,12 @@ def detect(target: Any) -> str:
     modules: list[str] = []
     for cls in type(target).__mro__:
         modules.append(getattr(cls, "__module__", "") or "")
-    modules.append(getattr(target, "__module__", "") or "")
+    # A plain function's module is wherever the user defined it, which says
+    # nothing about the framework (a user module named `agents` is not the
+    # OpenAI Agents SDK), so only framework objects contribute their module.
+    if not (inspect.isfunction(target) or inspect.ismethod(target)
+            or inspect.isbuiltin(target)):
+        modules.append(getattr(target, "__module__", "") or "")
     # longest prefix wins (e.g. 'google.adk' beats 'google')
     best: tuple[int, str] | None = None
     for prefix, name in _PREFIXES:
@@ -141,14 +146,24 @@ def detect(target: Any) -> str:
 
 # --------------------------------------------------------------- adapters
 
+def _accepts_context(fn: Callable) -> bool:
+    """True if fn can be called positionally as fn(task, context)."""
+    try:
+        params = list(inspect.signature(fn).parameters.values())
+    except (ValueError, TypeError):  # some builtins have no signature
+        return False
+    positional = [p for p in params
+                  if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    return len(positional) >= 2 or any(p.kind == p.VAR_POSITIONAL for p in params)
+
+
 @register_adapter("callable")
 class CallableAdapter(BaseAdapter):
     def invoke(self, task: str, context: dict[str, Any]) -> tuple[str, Trace]:
         fn = self.target
-        try:
-            out = fn(task, context) if len(inspect.signature(fn).parameters) >= 2 else fn(task)
-        except (ValueError, TypeError):
-            out = fn(task)
+        # The arity is settled before the call, so the user's function runs
+        # once and its own errors reach the caller unchanged.
+        out = fn(task, context) if _accepts_context(fn) else fn(task)
         if inspect.iscoroutine(out):
             out = _run_async(out)
         return _text_of(out), [{"step": "invoke", "input": task}]
@@ -301,7 +316,7 @@ class CrewAIAdapter(BaseAdapter):
         return self._fail(["kickoff"])
 
 
-@register_adapter("openai_agents", prefixes=("agents",))
+@register_adapter("openai_agents", prefixes=("agents.agent",))
 class OpenAIAgentsAdapter(BaseAdapter):
     def invoke(self, task: str, context: dict[str, Any]) -> tuple[str, Trace]:
         try:

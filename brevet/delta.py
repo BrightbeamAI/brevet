@@ -15,7 +15,9 @@ comparison between what was actually done and what the signed harness
 specified the difference signal, written enacted ⊖ specified.
 
 Nothing here can promote anything: every candidate starts in the Evidence
-layer with validation_state=captured.
+layer with validation_state=captured. ``dream_cycle`` runs one cycle and
+adds only what is new, so running it every night does not refill the dawn
+queue with candidates that were already proposed, decided or recalled.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from brevet.models import (
     ApplicabilityContext,
@@ -31,11 +34,18 @@ from brevet.models import (
     CapabilityObject,
     OverrideRecord,
     Provenance,
+    RevocationStatus,
     SourcePathway,
+    ValidationState,
+    _now,
     new_id,
 )
 
 MIN_RECURRENCE = 3  # endogenous candidates need recurrence before proposal
+
+#: Tags that mark how an override arrived rather than what it is about;
+#: they never name the mechanism a group of overrides shares.
+MARKER_TAGS = frozenset({"chap-ingest", "rejected"})
 
 
 @dataclass(frozen=True)
@@ -46,7 +56,7 @@ class FailureSignature:
 
 
 def signature_of(override: OverrideRecord) -> FailureSignature:
-    mechanism = override.tags[0] if override.tags else "untagged"
+    mechanism = next((t for t in override.tags if t and t not in MARKER_TAGS), "untagged")
     return FailureSignature(
         cause=f"override:{override.task_family}",
         causal_status="soft_fail" if override.intent_preserved else "hard_fail",
@@ -61,10 +71,13 @@ def mine(
     run_id: str | None = None,
     assist=None,
     ledger=None,
+    known: set[tuple[FailureSignature, frozenset[str]]] | None = None,
 ) -> list[CapabilityObject]:
     """Cluster overrides by exact signature agreement (deterministic,
     evaluator-grounded, no latent similarity search) and emit one candidate
-    per cluster with recurrence >= MIN_RECURRENCE."""
+    per cluster with recurrence >= MIN_RECURRENCE. Clusters listed in
+    ``known`` (signature and the exact set of override ids) are skipped
+    before any drafting."""
     run_id = run_id or new_id("dream")
     clusters: dict[FailureSignature, list[OverrideRecord]] = defaultdict(list)
     for ovr in overrides:
@@ -75,6 +88,8 @@ def mine(
         clusters.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
         if len(members) < MIN_RECURRENCE:
+            continue
+        if known and (sig, frozenset(m.override_id for m in members)) in known:
             continue
         rationales = [m.rationale for m in members if m.rationale][:5]
         kind, content, assist_used = _draft_intervention(
@@ -109,6 +124,71 @@ def mine(
         cand.seal()
         candidates.append(cand)
     return candidates
+
+
+def dream_cycle(ledger, store, *, model_family: str | None = None,
+                assist=None) -> dict[str, Any]:
+    """Run one dream cycle and add only what is new.
+
+    A cluster is not proposed again when the same overrides already
+    produced a candidate, whatever happened to it since (promoted, held,
+    rejected or recalled), or when a capability with identical content
+    exists. A candidate built from more overrides than a pending one
+    supersedes it. Eval cases are compiled once per substituting override
+    that carries the expert's final."""
+    from brevet.evals import compile_suite
+
+    overrides = load_overrides(ledger)
+    by_id = {o.override_id: o for o in overrides}
+    existing = list(store.all().values())
+
+    def evidence_of(cap: CapabilityObject) -> frozenset[str]:
+        return frozenset(cap.provenance.source_overrides)
+
+    def signature_for(cap: CapabilityObject) -> FailureSignature | None:
+        sigs = {signature_of(by_id[i]) for i in cap.provenance.source_overrides if i in by_id}
+        return next(iter(sigs)) if len(sigs) == 1 else None
+
+    rules = [c for c in existing if c.kind != CapabilityKind.eval_case]
+    known = {(sig, evidence_of(c)) for c in rules if (sig := signature_for(c)) is not None}
+    known_hashes = {c.content_hash for c in existing if c.content_hash}
+
+    added = superseded = 0
+    for cand in mine(overrides, model_family=model_family, assist=assist,
+                     ledger=ledger, known=known):
+        if cand.content_hash in known_hashes:
+            continue  # identical content exists already (possibly recalled)
+        sig, evidence = signature_for(cand), evidence_of(cand)
+        for old in rules:
+            if (old.validation_state in (ValidationState.captured, ValidationState.tier2_pending)
+                    and old.revocation_status == RevocationStatus.active
+                    and signature_for(old) == sig and evidence_of(old) < evidence):
+                old.validation_state = ValidationState.superseded
+                old.revocation_status = RevocationStatus.superseded
+                old.lineage.append(f"superseded_by:{cand.capability_id}")
+                old.updated_at = _now()
+                store.add(old)
+                superseded += 1
+        store.add(cand)
+        ledger.append("brevet.candidate",
+                      {"capability_id": cand.capability_id, "title": cand.title,
+                       "recurrence": cand.evidence.recurrence_count},
+                      refs=[cand.capability_id])
+        known_hashes.add(cand.content_hash)
+        added += 1
+
+    compiled = {tuple(c.provenance.source_overrides) for c in existing
+                if c.kind == CapabilityKind.eval_case}
+    cases = 0
+    for case in compile_suite([o for o in overrides if not o.intent_preserved and o.final]):
+        key = tuple(case.provenance.source_overrides)
+        if key in compiled:
+            continue
+        store.add(case)
+        compiled.add(key)
+        cases += 1
+    return {"overrides": len(overrides), "candidates": added, "eval_cases": cases,
+            "superseded": superseded}
 
 
 def _family_of(sig: FailureSignature) -> str:
@@ -167,4 +247,10 @@ def _draft_intervention(
 
 
 def load_overrides(ledger) -> list[OverrideRecord]:
-    return [OverrideRecord(**env["body"]) for env in ledger.read("brevet.override")]
+    out = []
+    for env in ledger.read("brevet.override"):
+        try:
+            out.append(OverrideRecord(**env["body"]))
+        except (KeyError, TypeError, ValueError):
+            continue  # a malformed body is evidence of nothing
+    return out

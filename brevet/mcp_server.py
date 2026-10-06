@@ -3,50 +3,57 @@
 Any MCP client (Claude Code, Claude Desktop, Cursor, an agent of your own)
 gets the full lifecycle as tools. Start with:
 
-    brevet mcp --workdir .brevet --manifest agent.yaml
+    brevet mcp --workdir .brevet --manifest-path agent.yaml
 
-or register in a client config:
+or register in a client config, pointing BREVET_HOME at a folder that holds
+agent.yaml and .brevet/ (clients may start servers from any directory):
 
-    {"mcpServers": {"brevet": {"command": "brevet", "args": ["mcp"]}}}
+    {"mcpServers": {"brevet": {"command": "brevet", "args": ["mcp"],
+                               "env": {"BREVET_HOME": "/path/to/workspace"}}}}
 
-Authority invariants hold over MCP as in code: promotion tools require an
-approver identity and reject the agent:, model: and dream: namespaces. The
-check is on the identity supplied, not on who is calling; a deployment that
-must stop an agent from promoting its own candidates also needs
-authenticated callers.
+Authority invariants hold over MCP as in code: promotion, release and
+recall tools require a ``human:`` or ``mission_group:`` identity and refuse
+every other namespace, including agent:, model: and dream:. The check is on
+the identity supplied, not on who is calling; a deployment that must stop
+an agent from promoting its own candidates also needs authenticated callers.
 
-Requires the optional dependency:  pip install "mcp>=1.2"
-(installed automatically by the [mcp] extra when installing from the
-repository).
+Automatic capture is opt-in: set ``BREVET_AUTO_CAPTURE=1`` in the server's
+environment, or ``runtime_safety.evidence.auto_capture: true`` in the
+manifest, to instruct sessions to record corrections without being asked.
 """
 
 from __future__ import annotations
 
+import functools
 import json
-from pathlib import Path
+import os
+from typing import Any
 
-try:
-    from mcp.server.fastmcp import FastMCP  # MCP SDK 1.x
+try:  # MCP SDK 1.x
+    from mcp.server.fastmcp import FastMCP as _Server
+    from mcp.server.fastmcp.exceptions import ToolError
 except ImportError:  # pragma: no cover
-    try:
-        # MCP SDK 2.0 renamed FastMCP to MCPServer and moved it; the
-        # surface Brevet uses (tool decorator, stdio run) is unchanged.
-        from mcp.server.mcpserver import MCPServer as FastMCP
+    try:  # MCP SDK 2.x renamed FastMCP to MCPServer and moved it
+        from mcp.server.mcpserver import MCPServer as _Server
+        from mcp.server.mcpserver.exceptions import ToolError
     except ImportError as e:
         raise ImportError(
-            "MCP support requires the 'mcp' package: pip install 'mcp>=1.2'"
+            "MCP support requires the 'mcp' package: pip install 'mcp>=1.10,<3'"
         ) from e
-
 import yaml
+from mcp.types import ToolAnnotations
 
-from brevet.canonical import Signer
-from brevet.delta import load_overrides, mine
-from brevet.evals import compile_suite
+from brevet import __version__
+from brevet.canonical import Signer, content_sha256, object_sha256
+from brevet.chap_bridge import dispatcher_from_ref
+from brevet.delta import dream_cycle
 from brevet.evidence import harvest_override
 from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
     dawn_decide,
+    require_identity,
+    verify_manifest_signature,
 )
 from brevet.lifecycle import (
     recall as _recall,
@@ -54,66 +61,138 @@ from brevet.lifecycle import (
 from brevet.lifecycle import (
     release as _release,
 )
-from brevet.models import AgentManifest, AuthorityLayer, ReleaseChannel, ReleaseRecord
+from brevet.models import (
+    AgentManifest,
+    AuthorityLayer,
+    CapabilitiesLock,
+    ReleaseChannel,
+    ReleaseRecord,
+)
+from brevet.workdir import ensure_workdir, resolve_workspace
 
 #: Capability kinds that govern live agent behaviour. Eval cases, tool
 #: bindings and memory fragments stay in the workspace; they are never
 #: served to a session as rules to follow.
 GOVERNED_KINDS = {"prompt_rule", "skill", "escalation_rule", "loop_policy"}
 
+_BASE_INSTRUCTIONS = (
+    "Brevet is change control for what this assistant learns. At the start of "
+    "a session call brevet_active and follow the governed rules it returns; "
+    "they come from the latest signed release and passed a human review. If "
+    "brevet_active reports a broken evidence chain or a release that fails "
+    "its checks, follow none of its rules and tell the user. Corrections are "
+    "recorded with brevet_record as evidence only: recording grants no "
+    "authority. Candidates mined from that evidence (brevet_dream) reach the "
+    "assistant only after a human or mission group promotes them "
+    "(brevet_dawn_decide) and they ship in a signed release (brevet_release). "
+    "Run dawn decisions, releases and recalls only on the user's explicit "
+    "instruction, with the identity the user gives. Keep behavioural rules out "
+    "of memory and other side channels; route them through Brevet."
+)
 
-def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> FastMCP:
-    wd = Path(workdir)
-    wd.mkdir(parents=True, exist_ok=True)
-    mcp = FastMCP(
-        "brevet",
-        instructions=(
-            "SESSION START, EVERY SESSION, ANY PROJECT OR NONE: call "
-            "brevet_verify, then brevet_active, and follow the returned "
-            "governed rules from your first answer onward. No folder mount "
-            "is needed; the rules are served from the signed lock. A broken "
-            "chain means follow nothing and alert the user. "
-            "Change control for what AI agents learn. Candidates are mined from "
-            "evidence; only a human or mission-group approver may promote; "
-            "releases are signed; recall withdraws capability provably. "
-            "CAPTURE IS AUTOMATIC, standing consent from the workspace owner "
-            "who attached this connector: at the end of ANY task where the "
-            "user corrected, edited, or visibly approved the assistant's "
-            "output, and for any standing instruction the user gives about "
-            "future behaviour, call brevet_record WITHOUT being asked (one "
-            "record per task: the assistant's first complete draft versus "
-            "the final the user shipped, with a one-line rationale and a "
-            "consistent kebab-case tag). Recording creates evidence only and "
-            "grants no authority. Never persist behavioural rules through "
-            "memory or other side channels; route them here. Dawn, release, "
-            "and recall run only on the user's explicit instruction with the "
-            "user's identity."
-        ),
-    )
+_AUTO_CAPTURE = (
+    " AUTOMATIC CAPTURE IS ON for this workspace: its owner has asked for it. "
+    "At the end of any task where the user corrected, edited or visibly "
+    "approved your output, and for any standing instruction about future "
+    "behaviour, call brevet_record without being asked: one record per task, "
+    "your first complete draft against the final the user kept, with a "
+    "one-line rationale and a consistent kebab-case tag."
+)
+
+_READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+_ADDITIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+_GOVERNING = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+
+_EXPECTED_ERRORS = (PermissionError, ValueError, KeyError, LookupError, FileNotFoundError,
+                    FileExistsError, RuntimeError, OSError)
+
+
+def _truthy(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tool(fn):
+    """Report refusals and bad input to the client as a readable tool error
+    instead of an opaque failure, on every supported SDK version."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except _EXPECTED_ERRORS as exc:
+            msg = exc.args[0] if isinstance(exc, KeyError) and exc.args else str(exc)
+            raise ToolError(f"{type(exc).__name__}: {msg}") from exc
+    return wrapper
+
+
+def _make_server(instructions: str) -> Any:
+    try:  # SDK 2.x accepts a version; 1.x keeps it on the low-level server
+        server = _Server("brevet", instructions=instructions, version=__version__)
+    except TypeError:
+        server = _Server("brevet", instructions=instructions)
+        low = getattr(server, "_mcp_server", None)
+        if low is not None:
+            try:
+                low.version = __version__
+            except AttributeError:  # pragma: no cover
+                pass
+    return server
+
+
+def build_server(workdir: str | None = None, manifest_path: str | None = None) -> Any:
+    wd, mpath = resolve_workspace(workdir, manifest_path)
+    try:
+        wd = ensure_workdir(wd)
+    except OSError as e:
+        raise RuntimeError(
+            f"cannot create the Brevet workspace at {wd.resolve()}: {e.strerror or e}. "
+            f"Set BREVET_HOME to a writable folder, or pass --workdir and "
+            f"--manifest-path.") from e
+
+    def _manifest() -> AgentManifest | None:
+        if not mpath.exists():
+            return None
+        return AgentManifest(**yaml.safe_load(mpath.read_text(encoding="utf-8")))
+
+    m0 = _manifest()
+    evidence_cfg = (m0.runtime_safety.get("evidence", {}) if m0 else {}) or {}
+    auto = _truthy(os.environ.get("BREVET_AUTO_CAPTURE", "")) or _truthy(
+        evidence_cfg.get("auto_capture", False))
+    mcp = _make_server(_BASE_INSTRUCTIONS + (_AUTO_CAPTURE if auto else ""))
+
+    ledger_ref = evidence_cfg.get("ledger", "file:./ledger.jsonl")
+    ledger_path = wd / (ledger_ref[5:] if ledger_ref.startswith("file:") else "ledger.jsonl")
+    dispatcher = dispatcher_from_ref(ledger_ref, wd)  # created once, reused by every call
 
     def _ledger() -> Ledger:
-        return Ledger(wd / "ledger.jsonl")
+        return Ledger(ledger_path, dispatcher=dispatcher)
 
     def _store() -> CapabilityStore:
         return CapabilityStore(wd / "capabilities.jsonl")
 
-    def _manifest() -> AgentManifest:
-        return AgentManifest(**yaml.safe_load(Path(manifest_path).read_text()))
+    def _required_manifest() -> AgentManifest:
+        m = _manifest()
+        if m is None:
+            raise FileNotFoundError(
+                f"no manifest at {mpath}; create one with 'brevet init --directory "
+                f"{mpath.parent}' and set identity_policy.owner")
+        return m
 
-    @mcp.tool()
+    @mcp.tool(annotations=_ADDITIVE)
+    @_tool
     def brevet_record(task: str, family: str, draft: str, final: str = "",
                       rationale: str = "", tags: str = "",
                       participant: str = "") -> str:
         """Record one completed task as evidence: the agent's draft and the
-        expert's final (the version actually used). Call this AUTOMATICALLY at task end whenever
-        the user corrected, edited, or approved the output; do not wait to
-        be asked. An empty final means accepted verbatim. The participant
-        defaults to the workspace owner. Recording creates evidence only;
-        it grants no authority."""
+        expert's final (the version actually used). An empty final, or one
+        identical to the draft, means the draft was accepted as it was. The
+        participant is the human who made the correction and defaults to the
+        workspace owner named in the manifest. Recording creates evidence
+        only; it grants no authority."""
         ledger = _ledger()
-        m = _manifest() if Path(manifest_path).exists() else None
-        who = participant or (
-            (m.identity_policy or {}).get("owner") if m else None) or "human:unknown"
+        m = _manifest()
+        owner = (m.identity_policy or {}).get("owner") if m else None
+        who = require_identity(participant or owner or "human:unknown",
+                               role="participant")
         task_id = ledger.append("brevet.task", {
             "task": task, "task_family": family,
             "agent": m.agent if m else "agent",
@@ -140,165 +219,225 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
                            "participant": who, "override_harvested": True,
                            "intent_preserved": ov.intent_preserved})
 
-    @mcp.tool()
+    @mcp.tool(annotations=_ADDITIVE)
+    @_tool
     def brevet_chap_ingest(source: str, workspace: str = "",
                            strict: bool = False) -> str:
-        """Ingest CHAP review verdicts as brevet evidence: overrides (diff +
-        rationale + intent_preserved carried through verbatim), rejections
-        (substituting judgments), and approvals (accepted verbatim). CHAP is
-        the capture surface; brevet remains the learning gate. Ingestion
+        """Import CHAP review verdicts as evidence: overrides (diff,
+        rationale and intent_preserved carried through verbatim), rejections
+        (substituting judgments) and approvals (accepted as they were). CHAP is
+        the capture surface; Brevet remains the learning gate. Importing
         creates evidence only and grants no authority. ``source`` is an audit
-        JSONL file/dir (e.g. a synced ~/Dropbox/chap-audit folder), a
-        coordinator SQLite ``.db``, or a served coordinator URL (these two
-        need ``workspace``). Idempotent via a per-source cursor; safe to run
-        daily."""
+        JSONL file or folder, a coordinator SQLite ``.db`` file, or a served
+        coordinator URL (these two need ``workspace``). A per-source cursor
+        makes re-runs safe, so it can run daily."""
         from brevet.chap_evidence import ingest
 
         summary = ingest(source, workdir=wd, workspace=workspace or None,
                          strict=strict)
         return json.dumps(summary)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
+    @_tool
     def brevet_status() -> str:
-        """Agent status: version, channel, capability counts by authority layer,
-        pending dawn queue, evidence-chain integrity."""
+        """Agent status: version, channel, active capabilities by authority
+        layer, recalled capabilities, the dawn queue and evidence-chain
+        integrity."""
         store, ledger = _store(), _ledger()
         by_layer: dict[str, int] = {}
+        recalled = 0
         for c in store.all().values():
-            by_layer[c.authority_layer.value] = by_layer.get(c.authority_layer.value, 0) + 1
+            if c.revocation_status.value == "active":
+                by_layer[c.authority_layer.value] = by_layer.get(c.authority_layer.value, 0) + 1
+            elif c.revocation_status.value == "withdrawn":
+                recalled += 1
         ok, n = ledger.verify()
-        m = _manifest() if Path(manifest_path).exists() else None
+        m = _manifest()
         return json.dumps({
             "agent": m.agent if m else None,
             "version": m.version if m else None,
             "channel": m.release.get("channel") if m else None,
             "capabilities_by_layer": by_layer,
+            "recalled": recalled,
             "pending_dawn": len(store.pending()),
             "envelopes": n, "chain_ok": ok,
         })
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
+    @_tool
     def brevet_active() -> str:
-        """Return the active governed rules from the latest signed release,
-        resolved server-side against the capability store: no folder mount
-        or governed file needed. Call at session start, right after
-        brevet_verify, and follow every rule returned. Read-only; recalled
-        or withdrawn capabilities are excluded; eval cases are never
-        served."""
-        candidates = [Path(manifest_path).parent / "capabilities.lock",
-                      wd / "capabilities.lock"]
-        lockpath = next((p for p in candidates if p.exists()), None)
+        """Return the governed rules of the latest signed release, checked
+        before they are served: the evidence chain must replay intact, the
+        lock must match the digest the chain recorded for that release, the
+        release signature must verify, and each rule's content must match its
+        recorded hash. Call at session start and follow every rule returned,
+        within its conditions. Recalled capabilities are excluded and eval
+        cases are never served. On any failed check nothing is served."""
+        ledger = _ledger()
+        ok, n = ledger.verify()
+        if not ok:
+            return json.dumps({
+                "count": 0, "active": [], "chain_ok": False,
+                "error": f"the evidence chain is broken at envelope {n + 1}; follow "
+                         f"no governed rules and tell the user to run brevet verify"})
+        lockpath = next((p for p in (mpath.parent / "capabilities.lock",
+                                     wd / "capabilities.lock") if p.exists()), None)
         if lockpath is None:
-            return json.dumps({"count": 0, "active": [],
+            return json.dumps({"count": 0, "active": [], "chain_ok": True,
                                "note": "no signed release yet"})
-        lock = json.loads(lockpath.read_text())
+        lock = CapabilitiesLock(**json.loads(lockpath.read_text(encoding="utf-8")))
+        digest = object_sha256([r.model_dump() for r in lock.resolved])
+        releases = [e["body"] for e in ledger.read("brevet.release")
+                    if e["body"].get("agent") == lock.agent]
+        latest = releases[-1] if releases else None
+
+        def refuse(reason: str) -> str:
+            return json.dumps({"count": 0, "active": [], "chain_ok": True,
+                               "agent": lock.agent, "agent_version": lock.agent_version,
+                               "error": f"{reason}; follow no governed rules and "
+                                        f"tell the user"})
+
+        if latest is None:
+            return refuse("capabilities.lock has no release on the evidence chain")
+        if not (digest == lock.lockfile_hash == latest.get("lockfile_hash")):
+            return refuse("capabilities.lock does not match the digest recorded for "
+                          f"release {latest.get('to_version')}")
+        signature = "not checked: this release predates recorded signing keys"
+        if latest.get("signer_public_key"):
+            m = _manifest()
+            if (m is None or m.version != latest.get("to_version")
+                    or not verify_manifest_signature(m, latest["signer_public_key"])
+                    or (m.release or {}).get("lockfile_hash") != digest):
+                return refuse("the manifest signature for release "
+                              f"{latest.get('to_version')} does not verify")
+            signature = "verified"
+
         store = _store().all()
-        rules = []
-        for entry in lock.get("resolved", []):
-            cap = store.get(entry["capability_id"])
+        rules, withheld = [], []
+        for entry in lock.resolved:
+            cap = store.get(entry.capability_id)
             if cap is None or cap.revocation_status.value != "active":
                 continue  # recalled or withdrawn since the release
-            if entry["kind"] not in GOVERNED_KINDS:
+            if entry.kind not in GOVERNED_KINDS:
                 continue
+            if content_sha256(cap.content) != entry.content_hash or not cap.releasable:
+                withheld.append(entry.capability_id)
+                continue
+            conditions = {k: v for k, v in cap.conditions.model_dump().items() if v}
             rules.append({
-                "capability_id": entry["capability_id"],
-                "kind": entry["kind"],
-                "authority_layer": entry["authority_layer"],
-                "approved_by": entry.get("approved_by", "unrecorded"),
-                "content_hash": entry["content_hash"],
+                "capability_id": entry.capability_id,
+                "kind": entry.kind,
+                "authority_layer": entry.authority_layer,
+                "approved_by": entry.approved_by,
+                "content_hash": entry.content_hash,
                 "title": cap.title,
                 "content": cap.content.strip(),
+                "conditions": conditions,
             })
-        return json.dumps({
-            "agent": lock.get("agent"),
-            "agent_version": lock.get("agent_version"),
-            "lockfile_hash": lock.get("lockfile_hash"),
+        out = {
+            "agent": lock.agent,
+            "agent_version": lock.agent_version,
+            "lockfile_hash": lock.lockfile_hash,
+            "chain_ok": True,
+            "signature": signature,
             "count": len(rules),
             "active": rules,
-        })
+        }
+        if withheld:
+            out["withheld"] = withheld
+            out["warning"] = ("these capabilities no longer match the released "
+                              "content and were not served; tell the user")
+        return json.dumps(out)
 
-    @mcp.tool()
+    @mcp.tool(annotations=_ADDITIVE)
+    @_tool
     def brevet_dream() -> str:
-        """Run the offline mining cycle: cluster overrides into Evidence-layer
-        candidate capabilities and compile the override-derived eval suite.
-        Candidates carry zero authority until a human promotes them."""
-        ledger, store = _ledger(), _store()
-        overrides = load_overrides(ledger)
-        candidates = mine(overrides, ledger=ledger)
-        for cand in candidates:
-            store.add(cand)
-            ledger.append("brevet.candidate",
-                          {"capability_id": cand.capability_id, "title": cand.title})
-        cases = compile_suite([o for o in overrides if not o.intent_preserved])
-        for case in cases:
-            store.add(case)
-        return json.dumps({"overrides": len(overrides), "candidates": len(candidates),
-                           "eval_cases": len(cases)})
+        """Run the dream cycle: group recurring overrides into Evidence-layer
+        candidate capabilities and compile eval cases from them. Only what is
+        new is added. Candidates have no authority until a human promotes
+        them."""
+        return json.dumps(dream_cycle(_ledger(), _store()))
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
+    @_tool
     def brevet_dawn_pending() -> str:
-        """List candidates awaiting human review (id, kind, recurrence, title)."""
+        """List the candidates awaiting a dawn decision: id, kind, recurrence
+        and title. Eval cases appear too, because their labels can be wrong."""
         return json.dumps([
             {"capability_id": c.capability_id, "kind": c.kind.value,
              "recurrence": c.evidence.recurrence_count, "title": c.title}
             for c in _store().pending()
         ])
 
-    @mcp.tool()
+    @mcp.tool(annotations=_GOVERNING)
+    @_tool
     def brevet_dawn_decide(capability_id: str, outcome: str, approver: str,
                            to_layer: str = "advisory", notes: str = "") -> str:
-        """Apply one dawn-gate decision (promote|hold|reject|re_elicit).
-        approver MUST be a human or mission-group identity; agent/model/dream
-        identities are rejected by the authority invariant."""
+        """Apply one dawn-gate decision: promote, hold, reject or re_elicit.
+        The approver must be human:<who> or mission_group:<name>; promotion
+        to the controlled layer needs a mission group. Run only on the user's
+        explicit instruction, with the identity the user gives."""
         cap = dawn_decide(_store(), _ledger(), capability_id, outcome,
                           approver=approver, to_layer=AuthorityLayer(to_layer), notes=notes)
         return json.dumps({"capability_id": cap.capability_id,
                            "validation_state": cap.validation_state.value,
                            "authority_layer": cap.authority_layer.value})
 
-    @mcp.tool()
+    @mcp.tool(annotations=_GOVERNING)
+    @_tool
     def brevet_release(to_version: str, approver: str, channel: str = "shadow",
                        delta_held_in: float = 0.0, delta_held_out: float = 0.0,
                        rationale: str = "") -> str:
         """Resolve promoted capabilities into capabilities.lock, sign the
-        manifest (ed25519), and record the release. Non-shadow channels
-        require the conservative eval gate to pass."""
-        manifest = _manifest()
+        manifest (Ed25519, covering the lock's digest) and record the release.
+        Trial and production releases need the conservative gate to pass on
+        the deltas supplied here (measured, or attested by the user). Run only
+        on the user's explicit instruction, with the identity the user gives."""
         manifest, lock, record = _release(
-            manifest, _store(), _ledger(), Signer(wd / "keys" / "brevet_ed25519.pem"),
+            _required_manifest(), _store(), _ledger(),
+            Signer(wd / "keys" / "brevet_ed25519.pem"),
             to_version=to_version, channel=ReleaseChannel(channel), approver=approver,
             eval_summary={"delta_held_in": delta_held_in, "delta_held_out": delta_held_out,
                           "gate": "conservative"},
             rationale=rationale)
-        Path(manifest_path).write_text(yaml.safe_dump(
-            manifest.model_dump(exclude_none=False), sort_keys=False))
-        (Path(manifest_path).parent / "capabilities.lock").write_text(
-            lock.model_dump_json(indent=2))
+        mpath.write_text(yaml.safe_dump(manifest.model_dump(exclude_none=False),
+                                        sort_keys=False), encoding="utf-8")
+        (mpath.parent / "capabilities.lock").write_text(lock.model_dump_json(indent=2),
+                                                         encoding="utf-8")
         return json.dumps({"release_id": record.release_id,
                            "from": record.from_version, "to": record.to_version,
-                           "channel": channel, "locked": len(lock.resolved)})
+                           "channel": record.channel.value, "locked": len(lock.resolved)})
 
-    @mcp.tool()
+    @mcp.tool(annotations=_GOVERNING)
+    @_tool
     def brevet_recall(capability_id: str, reason: str, issued_by: str,
-                      reason_class: str = "incorrect", severity: str = "high") -> str:
+                      reason_class: str = "incorrect", severity: str = "high",
+                      action: str = "rollback") -> str:
         """Recall a capability: withdraw it, flag every release whose lockfile
-        contains it, and append the recall notice to the evidence chain."""
+        contains it, and append the recall notice to the evidence chain.
+        reason_class is one of incorrect, unsafe, consent_withdrawn,
+        superseded, stale, compliance or other; severity is low, medium, high
+        or critical; action is quarantine, rollback or re_review. Run only on
+        the user's explicit instruction, with the identity the user gives."""
         ledger = _ledger()
         releases = [ReleaseRecord(**e["body"]) for e in ledger.read("brevet.release")]
         notice = _recall(_store(), ledger, capability_id, reason=reason,
                          reason_class=reason_class, severity=severity,
-                         issued_by=issued_by, releases=releases)
+                         issued_by=issued_by, releases=releases, action=action)
         return json.dumps({"recall_id": notice.recall_id,
                            "affected_releases": notice.affected_releases})
 
-    @mcp.tool()
+    @mcp.tool(annotations=_READ_ONLY)
+    @_tool
     def brevet_verify() -> str:
-        """Independently replay the hash-linked evidence chain."""
+        """Replay the hash-linked evidence chain and report whether it is
+        intact. Replay detects edits that break the chain; detecting a
+        wholesale rewrite needs the latest hash held somewhere else."""
         ok, n = _ledger().verify()
         return json.dumps({"chain_ok": ok, "envelopes": n})
 
     return mcp
 
 
-def serve(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
+def serve(workdir: str | None = None, manifest_path: str | None = None) -> None:
     build_server(workdir, manifest_path).run()

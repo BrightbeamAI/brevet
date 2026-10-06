@@ -1,9 +1,7 @@
+<!-- Generated from README.md by scripts/make_pypi_readme.py for PyPI. Edit README.md, then run the script. -->
 <p align="center">
   <a href="https://github.com/BrightbeamAI">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brightbeam-logo-dark.svg">
-      <img src="docs/assets/brightbeam-logo-light.svg" alt="Brightbeam" width="220">
-    </picture>
+      <img src="https://raw.githubusercontent.com/BrightbeamAI/brevet/v0.2.0/docs/assets/brightbeam-logo-light.svg" alt="Brightbeam" width="220">
   </a>
 </p>
 
@@ -14,7 +12,7 @@ auditable, and revocable.</b></p>
 
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0"></a>
+  <a href="https://github.com/BrightbeamAI/brevet/blob/v0.2.0/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0"></a>
   <a href="https://github.com/BrightbeamAI/brevet/actions/workflows/ci.yml"><img src="https://github.com/BrightbeamAI/brevet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/BrightbeamAI/chap"><img src="https://img.shields.io/badge/CHAP-compatible-EA4700.svg" alt="CHAP-compatible"></a>
 </p>
@@ -47,10 +45,7 @@ step is recorded on a hash-linked **evidence chain**.
 > the runtime only ever executes signed versions.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.svg">
-    <img src="docs/assets/how-it-works-light.svg" alt="The governed evolution loop: the agent works under one signed harness; an expert's correction is recorded as an override; the dream cycle turns recurring overrides into candidate capabilities with no authority; at the dawn gate a named human or mission group promotes, holds or rejects each candidate; evals replay the overrides and the conservative gate must pass; promoted capabilities ship in a signed release listed in capabilities.lock. A capability that proves wrong is recalled and every release that shipped it is flagged." width="900">
-  </picture>
+    <img src="https://raw.githubusercontent.com/BrightbeamAI/brevet/v0.2.0/docs/assets/how-it-works-light.svg" alt="The governed evolution loop: the agent works under one signed harness; an expert's correction is recorded as an override; the dream cycle turns recurring overrides into candidate capabilities with no authority; at the dawn gate a named human or mission group promotes, holds or rejects each candidate; evals replay the overrides and the conservative gate must pass; promoted capabilities ship in a signed release listed in capabilities.lock. A capability that proves wrong is recalled and every release that shipped it is flagged." width="900">
 </p>
 
 ## Three questions Brevet answers
@@ -73,10 +68,7 @@ vibration to a faulty sensor, so the mission group recalls the rule and Brevet
 flags release 0.2.0.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/example-dark.svg">
-    <img src="docs/assets/example-light.svg" alt="The example as a timeline: over three weeks the reviewer records four overrides; that night the dream cycle proposes a candidate rule at the Evidence layer; next morning at dawn the mission group promotes it and release 0.2.0 ships signed; months later the rule is recalled and release 0.2.0 is flagged." width="860">
-  </picture>
+    <img src="https://raw.githubusercontent.com/BrightbeamAI/brevet/v0.2.0/docs/assets/example-light.svg" alt="The example as a timeline: over three weeks the reviewer records four overrides; that night the dream cycle proposes a candidate rule at the Evidence layer; next morning at dawn the mission group promotes it and release 0.2.0 ships signed; months later the rule is recalled and release 0.2.0 is flagged." width="860">
 </p>
 
 <details>
@@ -125,8 +117,8 @@ agent.recall(rule.capability_id, reason="The vibration came from a faulty sensor
 agent.verify()
 ```
 
-The full script is [examples/pump_vibration.py](examples/pump_vibration.py), and
-[ABOUT.md](ABOUT.md#the-worked-example) shows what it prints.
+The full script is [examples/pump_vibration.py](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/examples/pump_vibration.py), and
+[ABOUT.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/ABOUT.md#the-worked-example) shows what it prints.
 
 </details>
 
@@ -141,7 +133,7 @@ brevet playground            # step through the loop in your browser
 Everything runs on your own machine, with no model or network connection. To
 run the example above, clone the repository and run
 `python examples/pump_vibration.py`. For a guided, clickable tour, open
-[docs/demo.html](docs/demo.html) in a browser.
+[docs/demo.html](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/docs/demo.html) in a browser.
 
 ## Works with the agent you already have
 
@@ -149,33 +141,33 @@ run the example above, clone the repository and run
 DeepAgents, AutoGen, LlamaIndex, Pydantic AI, the Google Agent Development Kit,
 CrewAI and the OpenAI Agents SDK, and it accepts any Python function. Brevet
 never changes the agent it wraps. `uvx brevet mcp` offers the whole loop to any
-MCP client ([ABOUT.md](ABOUT.md#the-mcp-server) shows the setup), and
-[examples/claude-cowork](examples/claude-cowork) uses it to govern what Claude
+MCP client ([ABOUT.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/ABOUT.md#the-mcp-server) shows the setup), and
+[examples/claude-cowork](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/examples/claude-cowork) uses it to govern what Claude
 itself learns.
 
 ## Project status
 
 Brevet implements the whole loop and keeps every record. Some protections
 depend on the system you deploy it in, such as authenticated approvers and an
-evidence chain anchored outside the machine. [ABOUT.md](ABOUT.md#project-status)
+evidence chain anchored outside the machine. [ABOUT.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/ABOUT.md#project-status)
 lists them, and the [paper](#citation) sets them out in full.
 
 ## Learn more
 
-- **[ABOUT.md](ABOUT.md)**: the seven stages, the authority ladder, supported
+- **[ABOUT.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/ABOUT.md)**: the seven stages, the authority ladder, supported
   frameworks, the MCP server and commands, how Brevet fits with CHAP and Metis,
   and how the repository is organised.
-- **[GLOSSARY.md](GLOSSARY.md)**: every term, with its plain meaning first.
-- **[SPEC.md](SPEC.md)**: the rules any implementation must follow.
-- **[BENCHMARK.md](BENCHMARK.md)**: the proposed governed-adaptation benchmark.
+- **[GLOSSARY.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/GLOSSARY.md)**: every term, with its plain meaning first.
+- **[SPEC.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/SPEC.md)**: the rules any implementation must follow.
+- **[BENCHMARK.md](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/BENCHMARK.md)**: the proposed governed-adaptation benchmark.
 
 ## Citation
 
 If you use Brevet in research, please cite the paper *Brevet: Change Control
 for What Self-Evolving AI Agents Learn* (Shahid, Suttie and Black, 2026).
-[CITATION.cff](CITATION.cff) gives the software citation.
+[CITATION.cff](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/CITATION.cff) gives the software citation.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE). Brevet is a
+Apache-2.0. See [LICENSE](https://github.com/BrightbeamAI/brevet/blob/v0.2.0/LICENSE). Brevet is a
 [Brightbeam](https://github.com/BrightbeamAI) project.

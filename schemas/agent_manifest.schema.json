@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brightbeam.ai/schemas/brevet/agent_manifest.schema.json",
   "title": "AgentManifest",
-  "description": "agent.yaml: the harness as data, conforming to the five-layer Brightbeam Expert Agent Signature. A manifest is content-hashed and signed; the runtime refuses to execute anything unsigned. Every version transition is a CHAP-recorded release.",
+  "description": "agent.yaml: the harness as data, conforming to the five-layer Brightbeam Expert Agent Signature. A manifest is content-hashed and signed at each release; outside the shadow channel the runtime refuses a manifest whose signature does not verify. Every version transition is a CHAP-recorded release.",
   "type": "object",
   "required": ["agent", "version", "identity_policy", "prompt_architecture", "cognitive_core", "bindings", "runtime_safety"],
   "properties": {
@@ -133,18 +133,20 @@
     "release": {
       "type": "object",
       "properties": {
-        "channel": { "type": "string", "enum": ["shadow", "trial", "production"], "default": "shadow" }
+        "channel": { "type": "string", "enum": ["shadow", "trial", "production"], "default": "shadow" },
+        "lockfile_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$", "description": "Digest of the release's capabilities.lock; part of the signed payload." }
       }
     },
 
     "signature": {
       "type": ["object", "null"],
-      "description": "Set by `brevet release`. The runtime refuses unsigned manifests outside shadow channel.",
+      "description": "Set by `brevet release`. Outside the shadow channel the runtime refuses a manifest whose signature does not verify.",
       "properties": {
         "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "algorithm": { "type": "string", "const": "ed25519" },
         "signed_by": { "type": "string" },
         "signed_at": { "type": "string", "format": "date-time" },
+        "public_key": { "type": "string", "description": "Hex Ed25519 public key of the workspace that signed the release." },
         "signature": { "type": "string" }
       }
     }

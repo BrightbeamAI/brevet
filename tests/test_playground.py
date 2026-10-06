@@ -44,3 +44,35 @@ def test_playground_state_shape(tmp_path):
     assert st["steps"] == STEPS
     assert st["done"] == []
     assert st["status"]["version"] == "0.1.0"
+
+
+def test_playground_refuses_cross_site_and_malformed_posts(tmp_path):
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from brevet import playground
+
+    playground._Handler.base = None
+    playground._Handler.session = PlaygroundSession(tmp_path / "pg")
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), playground._Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def post(path, headers, body=b"{}"):
+        req = urllib.request.Request(url + path, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    try:
+        json_type = {"Content-Type": "application/json"}
+        assert post("/api/reset", {"Content-Type": "text/plain"}) == 415
+        assert post("/api/reset", {**json_type, "Origin": "https://evil.example"}) == 403
+        assert post("/api/step", json_type, b"{not json") == 400
+        assert post("/api/step", json_type, b'{"name": "work"}') == 200
+    finally:
+        httpd.shutdown()

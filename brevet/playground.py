@@ -82,7 +82,7 @@ class PlaygroundSession:
         path = self.root / ".brevet" / "ledger.jsonl"
         if not path.exists():
             return []
-        return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+        return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
     def _new_envelopes(self) -> list[dict]:
         lines = self._ledger_lines()
@@ -200,10 +200,10 @@ class PlaygroundSession:
                            delta_in=self._gate["delta_held_in"],
                            delta_out=self._gate["delta_held_out"],
                            rationale="Playground release: vibration/CIP severity rule.")
-        lock = json.loads((self.root / "capabilities.lock").read_text()) \
+        lock = json.loads((self.root / "capabilities.lock").read_text(encoding="utf-8")) \
             if (self.root / "capabilities.lock").exists() else \
-            json.loads((self.root / ".brevet" / "capabilities.lock").read_text())
-        manifest = yaml.safe_load((self.root / "agent.yaml").read_text())
+            json.loads((self.root / ".brevet" / "capabilities.lock").read_text(encoding="utf-8"))
+        manifest = yaml.safe_load((self.root / "agent.yaml").read_text(encoding="utf-8"))
         return {"summary": "Release 0.1.0 -> 0.2.0 on the trial channel: "
                            "promoted capabilities are locked into "
                            "capabilities.lock and the manifest is signed with Ed25519.",
@@ -230,8 +230,18 @@ class PlaygroundSession:
 
 
 # ------------------------------------------------------------------ http
+def _fresh_root(base: Path | None) -> Path | None:
+    """A new folder for each reset: inside --workdir when one was given,
+    otherwise a new temporary folder."""
+    if base is None:
+        return None
+    base.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="run-", dir=base))
+
+
 class _Handler(BaseHTTPRequestHandler):
     session: PlaygroundSession
+    base: Path | None = None
 
     def _json(self, obj, code=200):
         body = json.dumps(obj, default=str).encode()
@@ -255,12 +265,27 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
+        # Only this page may drive the playground: a JSON content type cannot
+        # be sent cross-site without a CORS preflight, which is never
+        # answered, and a foreign Origin is refused outright.
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host", "")
+        if origin and origin not in (f"http://{host}", f"https://{host}"):
+            self._json({"error": "cross-origin request refused"}, 403)
+            return
+        if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+            self._json({"error": "send application/json"}, 415)
+            return
         n = int(self.headers.get("Content-Length") or 0)
-        payload = json.loads(self.rfile.read(n) or b"{}") if n else {}
+        try:
+            payload = json.loads(self.rfile.read(n) or b"{}") if n else {}
+        except ValueError:
+            self._json({"error": "the request body is not JSON"}, 400)
+            return
         if self.path == "/api/step":
-            self._json(type(self).session.run_step(payload.get("name", "")))
+            self._json(type(self).session.run_step(str(payload.get("name", ""))))
         elif self.path == "/api/reset":
-            type(self).session = PlaygroundSession()
+            type(self).session = PlaygroundSession(_fresh_root(type(self).base))
             self._json(type(self).session.state())
         else:
             self._json({"error": "not found"}, 404)
@@ -271,7 +296,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 def serve(port: int = 8765, workdir: Path | None = None,
           open_browser: bool = True) -> None:
-    _Handler.session = PlaygroundSession(workdir)
+    _Handler.base = Path(workdir) if workdir else None
+    _Handler.session = PlaygroundSession(_fresh_root(_Handler.base))
     httpd = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     url = f"http://127.0.0.1:{port}"
     print(f"brevet playground: {url}")
@@ -418,7 +444,8 @@ document.getElementById('runall').onclick = async ()=>{
   }
 };
 document.getElementById('reset').onclick = async ()=>{
-  state = await (await fetch('/api/reset',{method:'POST'})).json();
+  state = await (await fetch('/api/reset',{method:'POST',
+    headers:{'Content-Type':'application/json'}, body:'{}'})).json();
   document.getElementById('chain').innerHTML='';
   document.getElementById('artifact').textContent='-';
   document.getElementById('summary').textContent='Fresh workspace. Press Work to begin.';

@@ -37,13 +37,13 @@ from brevet.adapters import BaseAdapter, detect, get_adapter
 from brevet.assist import ModelAssist, NoModelAssist
 from brevet.canonical import Signer
 from brevet.chap_bridge import dispatcher_from_ref
-from brevet.delta import load_overrides, mine
-from brevet.evals import compile_suite
+from brevet.delta import dream_cycle
 from brevet.evidence import harvest_override
 from brevet.ledger import Ledger
 from brevet.lifecycle import (
     CapabilityStore,
     dawn_decide,
+    verify_manifest_signature,
 )
 from brevet.lifecycle import (
     recall as _recall,
@@ -60,6 +60,7 @@ from brevet.models import (
     ReleaseChannel,
     ReleaseRecord,
 )
+from brevet.workdir import ensure_workdir
 
 
 @dataclass
@@ -106,8 +107,7 @@ class BrevetAgent:
                  assist: ModelAssist | None = None):
         self.adapter = adapter
         self.manifest = manifest
-        self.workdir = Path(workdir)
-        self.workdir.mkdir(parents=True, exist_ok=True)
+        self.workdir = ensure_workdir(workdir)
         self.manifest_path = manifest_path
         self.assist = assist or NoModelAssist()
 
@@ -123,8 +123,23 @@ class BrevetAgent:
 
     # ------------------------------------------------------------ waking
 
+    def _check_signed(self) -> None:
+        """Outside the shadow channel the agent runs only a manifest whose
+        signature verifies, so an edit after release stops it rather than
+        running unrecorded."""
+        channel = self.manifest.release.get("channel", "shadow")
+        if channel == "shadow":
+            return
+        key = self.signer.public_key_hex() if self.signer.has_key else None
+        if not verify_manifest_signature(self.manifest, key):
+            raise PermissionError(
+                f"refusing to run {self.manifest.agent} {self.manifest.version}: it is on "
+                f"the {channel} channel but its manifest signature does not verify. "
+                f"Release a new version, or return to the shadow channel.")
+
     def run(self, task: str, *, task_family: str | None = None,
             context: dict[str, Any] | None = None) -> RunResult:
+        self._check_signed()
         task_id = self.ledger.append("brevet.task", {
             "task": task, "task_family": task_family,
             "agent": self.manifest.agent, "agent_version": self.manifest.version,
@@ -159,23 +174,12 @@ class BrevetAgent:
 
     def dream(self) -> dict[str, int]:
         """Offline cycle: mine ``enacted ⊖ specified`` into Evidence-layer
-        candidates and compile the override-derived regression suite."""
-        overrides = load_overrides(self.ledger)
+        candidates and compile the override-derived eval cases. Only what is
+        new is added, so the cycle can run every night."""
         model_family = (self.manifest.cognitive_core.get("model_policy", {})
                         .get("local_default", "").split(":")[1:2] or [None])[0]
-        candidates = mine(overrides, model_family=model_family,
-                          assist=self.assist, ledger=self.ledger)
-        for cand in candidates:
-            self.store.add(cand)
-            self.ledger.append("brevet.candidate",
-                               {"capability_id": cand.capability_id, "title": cand.title,
-                                "recurrence": cand.evidence.recurrence_count},
-                               refs=[cand.capability_id])
-        cases = compile_suite([o for o in overrides if not o.intent_preserved])
-        for case in cases:
-            self.store.add(case)
-        return {"overrides": len(overrides), "candidates": len(candidates),
-                "eval_cases": len(cases)}
+        return dream_cycle(self.ledger, self.store, model_family=model_family,
+                           assist=self.assist)
 
     # -------------------------------------------------------------- dawn
 
@@ -212,9 +216,10 @@ class BrevetAgent:
         )
         if self.manifest_path:
             self.manifest_path.write_text(yaml.safe_dump(
-                self.manifest.model_dump(exclude_none=False), sort_keys=False))
+                self.manifest.model_dump(exclude_none=False), sort_keys=False),
+                encoding="utf-8")
             (self.manifest_path.parent / "capabilities.lock").write_text(
-                lock.model_dump_json(indent=2))
+                lock.model_dump_json(indent=2), encoding="utf-8")
         return record
 
     def recall(self, capability_id: str, *, reason: str, issued_by: str,
@@ -271,12 +276,12 @@ def wrap(target: Any, *, manifest: str | Path | AgentManifest | None = None,
     else:
         manifest_path = Path(manifest) if manifest else workdir / "agent.yaml"
         if manifest_path.exists():
-            m = AgentManifest(**yaml.safe_load(manifest_path.read_text()))
+            m = AgentManifest(**yaml.safe_load(manifest_path.read_text(encoding="utf-8")))
         else:
             m = _default_manifest(_slug(target))
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
             manifest_path.write_text(yaml.safe_dump(
-                m.model_dump(exclude_none=False), sort_keys=False))
+                m.model_dump(exclude_none=False), sort_keys=False), encoding="utf-8")
 
     adapter_name = adapter or detect(target)
     return BrevetAgent(get_adapter(adapter_name)(target), m, workdir,

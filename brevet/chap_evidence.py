@@ -11,8 +11,10 @@ Three source shapes, auto-detected from the ``source`` string:
 
 - **JSONL sink** (path to ``audit-<workspace>.jsonl`` or a directory of
   them): the files written by an ``on_audit`` listener, typically in a
-  synced folder. Verified structurally (seq contiguity, prev-hash
-  linkage); cryptographic verification needs a coordinator.
+  synced folder. Checked structurally only: every line parses, sequence
+  numbers are contiguous, the entry at seq 0 points at the genesis hash and
+  every entry carries a prev-hash. Checking the hashes themselves needs a
+  coordinator.
 - **SQLite store** (path ending ``.db``): the coordinator's own
   ``SqliteStore``. A real ``chap_coordinator.Coordinator`` is started on
   the store and queried over ``audit.read`` (nothing here reimplements
@@ -32,21 +34,25 @@ shape ``brevet_record`` writes, so mining and recurrence are unchanged):
 Ingestion is idempotent: a cursor file remembers the last seq consumed
 per (source, workspace). Re-running is safe and cheap. It is also
 path-idempotent: a correction already captured in-session through
-``brevet_record`` is not recorded again from CHAP, so running both
-capture paths cannot inflate recurrence. Ingestion creates
-evidence only; it grants no authority.
+``brevet_record`` absorbs one matching CHAP verdict (same family, draft and
+final), so running both capture paths does not count one judgment twice.
+Identical corrections on different CHAP tasks are separate judgments and
+are all kept. Ingestion creates evidence only; it grants no authority.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.error
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from brevet.ledger import Ledger
 from brevet.models import OverrideRecord, new_id
+from brevet.workdir import ensure_workdir
 
 GENESIS = "sha256:" + "0" * 64
 _DECIDE_METHODS = {"decide.override", "decide.approve", "decide.reject"}
@@ -55,18 +61,30 @@ INGEST_TAG = "chap-ingest"
 
 # ------------------------------------------------------------ sources
 
-def _iter_jsonl_file(path: Path) -> list[dict[str, Any]]:
-    entries = []
-    with path.open() as f:
+def _iter_jsonl_file(path: Path) -> tuple[list[dict[str, Any]], int]:
+    """Entries sorted by seq, and the number of lines that did not parse
+    (a synced file can end in a half-written line)."""
+    entries, damaged = [], 0
+    with path.open(encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
-            if line:
-                entries.append(json.loads(line))
-    return sorted(entries, key=lambda e: e.get("seq", 0))
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                damaged += 1
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+            else:
+                damaged += 1
+    return sorted(entries, key=lambda e: e.get("seq", 0)), damaged
 
 
-def _jsonl_sources(path: Path) -> dict[str, list[dict[str, Any]]]:
-    """Map workspace id -> audit entries for a file or directory of files.
+def _jsonl_sources(path: Path) -> tuple[dict[str, list[dict[str, Any]]], set[str]]:
+    """Map workspace id -> audit entries for a file or directory of files,
+    plus the workspaces whose files had lines that did not parse.
 
     A missing path yields nothing rather than raising: scheduled ingestion
     runs before the sink exists, and "no evidence yet" is not an error."""
@@ -75,16 +93,18 @@ def _jsonl_sources(path: Path) -> dict[str, list[dict[str, Any]]]:
     else:
         files = [path] if path.is_file() else []
     out: dict[str, list[dict[str, Any]]] = {}
+    damaged: set[str] = set()
     for f in files:
-        entries = _iter_jsonl_file(f)
-        if not entries:
-            continue
-        ws = entries[0].get("envelope", {}).get("params", {}).get("workspace")
-        ws = ws or f.stem.removeprefix("audit-")
-        out.setdefault(ws, []).extend(entries)
+        entries, bad_lines = _iter_jsonl_file(f)
+        ws = (entries[0].get("envelope", {}).get("params", {}).get("workspace")
+              if entries else None) or f.stem.removeprefix("audit-")
+        if bad_lines:
+            damaged.add(ws)
+        if entries:
+            out.setdefault(ws, []).extend(entries)
     for entries_for_ws in out.values():
         entries_for_ws.sort(key=lambda e: e.get("seq", 0))
-    return out
+    return out, damaged
 
 
 class _CoordinatorSource:
@@ -97,6 +117,9 @@ class _CoordinatorSource:
         if source.startswith(("http://", "https://")):
             self._post_url = source.rstrip("/")
         else:
+            if not Path(source).is_file():
+                # Opening a missing path would create an empty store.
+                raise FileNotFoundError(f"no CHAP coordinator store at {source}")
             from chap_coordinator import Coordinator, CoordinatorOptions
             from chap_coordinator.storage.sqlite import SqliteStore
             self._coord = Coordinator(
@@ -131,14 +154,17 @@ class _CoordinatorSource:
 
 def _structural_ok(entries: list[dict[str, Any]]) -> bool:
     """JSONL files carry each entry's prev_hash but not its own hash, so
-    without a coordinator we check linkage shape, not cryptography:
-    genesis prev-hash first, then contiguous seq with a hash present."""
+    without a coordinator we check shape, not cryptography: the entry at
+    seq 0 points at the genesis hash, sequence numbers are contiguous, and
+    every entry carries a prev-hash."""
     if not entries:
         return True
-    if entries[0].get("seq") == 0 and entries[0].get("prev_hash") != GENESIS:
-        return False
     seqs = [e.get("seq") for e in entries]
-    if seqs != sorted(set(seqs)):
+    if not all(isinstance(s, int) for s in seqs):
+        return False
+    if seqs != list(range(seqs[0], seqs[0] + len(seqs))):
+        return False
+    if seqs[0] == 0 and entries[0].get("prev_hash") != GENESIS:
         return False
     return all(str(e.get("prev_hash", "")).startswith("sha256:") for e in entries)
 
@@ -209,19 +235,31 @@ def _fingerprint(family: str, draft: Any, final: Any) -> str:
     return _canon([family or "", _norm(draft), _norm(final)])
 
 
-def _existing_fingerprints(ledger: Ledger) -> set[str]:
-    """Corrections already in the ledger, however they were captured.
+def _fingerprint_key(family: str, draft: Any, final: Any) -> str:
+    """Short, stable key for a captured correction."""
+    return hashlib.sha256(
+        _fingerprint(family, draft, final).encode("utf-8")).hexdigest()[:32]
+
+
+_MATCHED_KEY = "__matched__"
+
+
+def _in_session_fingerprints(ledger: Ledger) -> Counter[str]:
+    """Corrections recorded in-session (not imported from CHAP), counted.
 
     A deployment may run both capture paths (``brevet_record`` in-session
-    and CHAP ingestion). The same human judgment must count once: double
-    counting would inflate recurrence and manufacture candidates from
-    evidence that never recurred.
-    """
-    seen: set[str] = set()
+    and CHAP ingestion). Each in-session correction absorbs one CHAP verdict
+    with the same family, draft and final, so one judgment counts once,
+    while identical corrections on different CHAP tasks all still count:
+    dropping them would hide real recurrence."""
+    seen: Counter[str] = Counter()
     for env in ledger.read("brevet.override"):
         body = env.get("body", {})
-        seen.add(_fingerprint(body.get("task_family", ""),
-                              body.get("draft"), body.get("final")))
+        from_chap = (str(body.get("trace_ref") or "").startswith("chap:")
+                     or INGEST_TAG in (body.get("tags") or []))
+        if not from_chap:
+            seen[_fingerprint_key(body.get("task_family", ""),
+                                  body.get("draft"), body.get("final"))] += 1
     return seen
 
 
@@ -231,11 +269,14 @@ def _ingest_workspace(
     entries: list[dict[str, Any]],
     after_seq: int,
     family_map: dict[str, str] | None,
-    seen: set[str] | None = None,
+    available: Counter[str] | None = None,
+    matched: Counter[str] | None = None,
+    imported: set[tuple[str, int]] | None = None,
 ) -> dict[str, int]:
     tasks: dict[str, _TaskContext] = {}
     pending: list[_TaskContext] = []
-    seen = seen if seen is not None else set()
+    available = available if available is not None else Counter()
+    matched = matched if matched is not None else Counter()
     counts = {"overrides": 0, "approvals": 0, "rejections": 0,
               "duplicates_skipped": 0}
 
@@ -261,10 +302,43 @@ def _ingest_workspace(
             if artefact is not None:
                 ctx.artefact = artefact
         elif method in _DECIDE_METHODS and entry.get("seq", 0) > after_seq:
+            if imported is not None and (workspace, entry.get("seq")) in imported:
+                # imported by an earlier run whose cursor was lost
+                counts["duplicates_skipped"] += 1
+                continue
             ctx = tasks.get(task_id) or _TaskContext()
             family = (family_map or {}).get(ctx.kind, ctx.kind)
             who = params.get("from", "human:unknown")
             draft = _canon(ctx.artefact) if ctx.artefact is not None else ""
+            trace_ref = f"chap:{workspace}#{entry.get('seq')}"
+            ov: OverrideRecord | None = None
+            if method == "decide.override":
+                patched = _apply_patch(ctx.artefact, params.get("diff") or []) \
+                    if ctx.artefact is not None else None
+                ov = OverrideRecord(
+                    task_id="", trace_ref=trace_ref, participant=who,
+                    intent_preserved=bool(params.get("intent_preserved", True)),
+                    diff=params.get("diff") or [],
+                    draft=draft, final=_canon(patched) if patched is not None else None,
+                    rationale=params.get("rationale", ""),
+                    tags=list(params.get("tags") or []) + [INGEST_TAG],
+                    task_family=family)
+            elif method == "decide.reject":  # the human reached a different decision
+                ov = OverrideRecord(
+                    task_id="", trace_ref=trace_ref, participant=who,
+                    intent_preserved=False, diff=[], draft=draft, final="",
+                    rationale=params.get("comment", ""),
+                    tags=list(params.get("tags") or []) + [INGEST_TAG, "rejected"],
+                    task_family=family)
+            if ov is not None:
+                key = _fingerprint_key(family, ov.draft, ov.final)
+                if available[key] > 0:
+                    # already captured in-session via brevet_record: one
+                    # judgment, one override, whatever the capture path
+                    available[key] -= 1
+                    matched[key] += 1
+                    counts["duplicates_skipped"] += 1
+                    continue
             provenance = {
                 "task": ctx.request or f"CHAP task {task_id}",
                 "task_family": family,
@@ -281,44 +355,16 @@ def _ingest_workspace(
             ledger.append("brevet.artefact",
                           {"task_id": bt_id, "output": draft,
                            "trace_len": 0, "trace": []}, refs=[bt_id])
-            trace_ref = f"chap:{workspace}#{entry.get('seq')}"
-            if method == "decide.approve":
+            if ov is None:  # decide.approve
                 ledger.append("brevet.artefact",
                               {"task_id": bt_id, "accepted_verbatim": True,
                                "comment": params.get("comment", "")},
                               refs=[bt_id])
                 counts["approvals"] += 1
                 continue
-            if method == "decide.override":
-                patched = _apply_patch(ctx.artefact, params.get("diff") or []) \
-                    if ctx.artefact is not None else None
-                ov = OverrideRecord(
-                    task_id=bt_id, trace_ref=trace_ref, participant=who,
-                    intent_preserved=bool(params.get("intent_preserved", True)),
-                    diff=params.get("diff") or [],
-                    draft=draft, final=_canon(patched) if patched is not None else None,
-                    rationale=params.get("rationale", ""),
-                    tags=list(params.get("tags") or []) + [INGEST_TAG],
-                    task_family=family)
-                counts["overrides"] += 1
-            else:  # decide.reject: the human reached a different decision
-                ov = OverrideRecord(
-                    task_id=bt_id, trace_ref=trace_ref, participant=who,
-                    intent_preserved=False, diff=[], draft=draft, final="",
-                    rationale=params.get("comment", ""),
-                    tags=list(params.get("tags") or []) + [INGEST_TAG, "rejected"],
-                    task_family=family)
-                counts["rejections"] += 1
-            fp = _fingerprint(family, ov.draft, ov.final)
-            if fp in seen:
-                # already captured in-session via brevet_record: one
-                # judgment, one override, whatever the capture path
-                counts["duplicates_skipped"] += 1
-                counts["overrides" if method == "decide.override"
-                       else "rejections"] -= 1
-                continue
-            seen.add(fp)
+            ov.task_id = bt_id
             ledger.append("brevet.override", ov.model_dump(), refs=[bt_id])
+            counts["overrides" if method == "decide.override" else "rejections"] += 1
     return counts
 
 
@@ -338,13 +384,15 @@ def ingest(
     ``workspace``: required for store/URL sources; inferred for JSONL.
     ``strict``: fail instead of ingesting when the chain does not verify.
     """
-    wd = Path(workdir)
-    wd.mkdir(parents=True, exist_ok=True)
+    wd = ensure_workdir(workdir)
     ledger = Ledger(wd / "ledger.jsonl")
-    seen = _existing_fingerprints(ledger)
     cursor_path = wd / "chap_cursor.json"
-    cursors: dict[str, int] = (
-        json.loads(cursor_path.read_text()) if cursor_path.exists() else {})
+    cursors: dict[str, Any] = (
+        json.loads(cursor_path.read_text(encoding="utf-8")) if cursor_path.exists() else {})
+    matched: Counter[str] = Counter(cursors.pop(_MATCHED_KEY, None) or {})
+    available = _in_session_fingerprints(ledger) - matched
+    imported = {(e["body"].get("chap_workspace"), e["body"].get("chap_seq"))
+                for e in ledger.read("brevet.task") if e["body"].get("source") == "chap"}
 
     if source.startswith(("http://", "https://")) or source.endswith(".db"):
         if not workspace:
@@ -355,10 +403,11 @@ def ingest(
             raise RuntimeError(f"chain verification failed for {workspace}")
         streams = {workspace: coord.entries(workspace)}
     else:
-        streams = _jsonl_sources(Path(source))
+        streams, damaged = _jsonl_sources(Path(source))
         if workspace:
             streams = {workspace: streams.get(workspace, [])}
-        bad = [ws for ws, es in streams.items() if not _structural_ok(es)]
+            damaged &= {workspace}
+        bad = sorted(damaged | {ws for ws, es in streams.items() if not _structural_ok(es)})
         if bad and strict:
             raise RuntimeError(f"structural chain check failed: {bad}")
         chain = "structural" if not bad else "failed"
@@ -371,12 +420,14 @@ def ingest(
         key = f"{source}::{ws}"
         counts = _ingest_workspace(ledger, ws, entries,
                                    cursors.get(key, -1), family_map,
-                                   seen=seen)
+                                   available=available, matched=matched,
+                                   imported=imported)
         if entries:
             cursors[key] = max(e.get("seq", -1) for e in entries)
         summary["workspaces"][ws] = counts
         for k in ("overrides", "approvals", "rejections",
                   "duplicates_skipped"):
             summary[k] += counts.get(k, 0)
-    cursor_path.write_text(json.dumps(cursors, indent=2))
+    cursors[_MATCHED_KEY] = dict(matched)
+    cursor_path.write_text(json.dumps(cursors, indent=2), encoding="utf-8")
     return summary

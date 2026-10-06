@@ -1,54 +1,93 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-06)
 
-- Documentation rewritten so that each of the paper's terms (override,
-  dream, dawn, evals, release, recall, the authority ladder) comes with a
+First release on PyPI and the MCP Registry.
+
+### Added
+
+- `pip install brevet` and `uvx brevet mcp`: the MCP SDK is now a core
+  dependency, and `server.json` describes the server for the MCP Registry.
+- MCP tools `brevet_record` (records a draft and the expert's final as
+  evidence), `brevet_active` (serves the governed rules of the latest
+  release, after checking them) and `brevet_chap_ingest`.
+- `brevet chap-ingest` imports CHAP review verdicts from an audit sink, a
+  coordinator store or a served coordinator. An override keeps its diff,
+  rationale, tags and `intent_preserved`; a rejection becomes a substituting
+  override; an approval becomes a draft accepted as it was.
+- `BREVET_HOME`, `BREVET_WORKDIR` and `BREVET_MANIFEST` tell the MCP server
+  where its workspace is, since clients can start servers from any directory.
+- `examples/pump_vibration.py`, the README's worked example as a runnable
+  script.
+- In `examples/claude-cowork`: a CHAP-enabled setup path, a weekly dawn
+  digest template, a tool-permission template and always-on capture
+  families.
+- `scripts/make_diagrams.py` regenerates every diagram, checks that no text
+  overflows its box and refreshes the copies embedded in `docs/demo.html`;
+  `scripts/make_pypi_readme.py` writes the README shown on PyPI.
+
+### Changed
+
+- Releases sign the manifest together with the digest of `capabilities.lock`
+  and record the signing key on the evidence chain.
+- Outside the shadow channel, a wrapped agent runs only while its manifest
+  signature verifies.
+- `brevet_active` serves nothing when the evidence chain is broken, the lock
+  does not match the digest recorded for its release, or the release
+  signature fails, and it withholds any rule whose stored content no longer
+  matches its hash.
+- Only `human:` and `mission_group:` identities can promote, release or
+  recall, checked strictly. Promotion to Controlled needs a mission group, and
+  a recalled or rejected capability can no longer be decided at dawn or be
+  recalled twice.
+- The dream cycle adds only what is new: a group of overrides already
+  proposed is not proposed again, a candidate with more evidence supersedes a
+  pending one, and eval cases are compiled once per override.
+- Later releases leave out a recalled capability and any capability with
+  identical content.
+- Eval cases are dealt alternately into held-in and held-out halves by
+  content hash, so both halves have cases; cases without an expert final are
+  skipped.
+- Automatic capture over MCP is opt-in (`BREVET_AUTO_CAPTURE=1` or
+  `runtime_safety.evidence.auto_capture`), and the MCP tools carry read-only
+  and destructive hints.
+- Documentation rewritten so that each of the paper's terms comes with a
   plain explanation: a short README built around a worked example, an
-  ABOUT.md that walks through the loop stage by stage, new diagrams in light
-  and dark versions for GitHub's two colour modes, and a glossary that gives
-  each term's plain meaning before its precise definition. The specification,
-  benchmark design and Claude example now state the same requirements as the
-  paper.
-- Added `examples/pump_vibration.py`, the README's worked example as a
-  runnable script: one capability from repeated override through dream, dawn,
-  evals, release and recall.
-- Candidate rules drafted by the dream cycle now read in plain language at the
-  dawn gate, and repeated identical rationales are listed once.
-- Clearer CLI help, `brevet demo` narration and playground text. `brevet
-  verify` now reports where a broken evidence chain first fails.
-- Added `scripts/make_diagrams.py`, which regenerates every diagram and
-  checks that no text overflows its box.
+  ABOUT.md that walks through the loop, new diagrams in light and dark
+  versions, a glossary that gives each term's plain meaning first, and a
+  revised interactive tour. The earlier diagrams and the animated GIF were
+  replaced.
+- Candidate rules drafted by the dream cycle read in plain language at the
+  dawn gate.
+- Clearer CLI: refusals print one line instead of a traceback, `brevet
+  verify` reports where a broken chain first fails, `brevet release` takes
+  `--rationale`, `brevet recall` takes `--action`, and `brevet init` does not
+  overwrite an existing manifest without `--force`.
 
-- Added to `examples/claude-cowork`: a CHAP-enabled setup path
-  (`--chap-workspace` creates the audit sink), a weekly dawn digest
-  task template that relays CHAP verdicts into evidence before mining,
-  a tool-permission template so governance never interrupts the work,
-  and `assistant_conduct` / `general` as always-on capture families.
-  Everything learned running this against a live CHAP deployment is now
-  reproducible from a clone.
+### Fixed
 
-- Added: **native CHAP evidence source** (`brevet/chap_evidence.py`,
-  `brevet chap-ingest`, MCP tool `brevet_chap_ingest`). The inbound
-  counterpart to `chap_bridge`: ingests a CHAP audit chain (a JSONL
-  `on_audit` sink (file or synced folder), a coordinator SQLite store,
-  or a served coordinator URL) and turns human verdicts into brevet
-  evidence. `decide.override` carries its diff, rationale, tags and
-  `intent_preserved` through verbatim; `decide.reject` lands as a
-  substituting override; `decide.approve` as accepted-verbatim.
-  Store/URL sources are queried through the official
-  `chap-coordinator` (`audit.read`), with `--strict` running
-  `audit.verify_chain` first; JSONL sources get a structural chain
-  check. Idempotent via a per-source seq cursor. Deployments that
-  capture reviews through CHAP (e.g. Claude Cowork with a chap-capture
-  skill) no longer need parallel `brevet_record` calls for verdicts:
-  CHAP is the capture surface, brevet remains the learning gate.
+- Concurrent writers (an MCP server, a scheduled import, the CLI) can no
+  longer break the evidence chain: appends take a file lock.
+- A damaged line in the evidence chain is reported as a break instead of
+  crashing `verify`, `status` and `record`.
+- The MCP server reports why a call was refused on both MCP SDK versions,
+  and explains how to set its workspace instead of crashing when started
+  from a read-only directory.
+- CHAP import keeps identical corrections made on different tasks, matches
+  an in-session record to at most one CHAP verdict, never imports a verdict
+  twice even if its cursor is lost, and reports a half-written line or a
+  mistyped store path instead of failing or creating an empty store.
+- A plain function no longer runs twice when it raises, and a user module
+  named `agents` is no longer mistaken for the OpenAI Agents SDK.
+- Evaluating with a CHAP override whose final could not be reconstructed no
+  longer crashes.
+- Files are read and written as UTF-8 on every platform.
 
-- Fixed: CHAP ingestion is now path-idempotent. A correction already
-  captured in-session through `brevet_record` is skipped rather than
-  recorded a second time, and the run reports `duplicates_skipped`.
-  Double counting would have inflated recurrence and proposed
-  candidates from evidence that never recurred.
+### Security
+
+- The signing key is created only at the first release and is readable only
+  by its owner, and the workspace gets a `.gitignore`.
+- The playground refuses cross-site requests.
 
 ## 0.1.0 (2026-08-02)
 

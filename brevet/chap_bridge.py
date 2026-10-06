@@ -160,7 +160,7 @@ class CHAPDispatcher:
     def dispatch(self, envelope: dict[str, Any]) -> bool:
         ok = self._send(envelope)
         if not ok:
-            with self.outbox.open("a") as f:
+            with self.outbox.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(envelope, ensure_ascii=False) + "\n")
         return ok
 
@@ -169,7 +169,7 @@ class CHAPDispatcher:
         if not self.outbox.exists():
             return 0, 0
         pending = [json.loads(line)
-                   for line in self.outbox.read_text().splitlines() if line.strip()]
+                   for line in self.outbox.read_text(encoding="utf-8").splitlines() if line.strip()]
         remaining: list[dict[str, Any]] = []
         sent = 0
         for envelope in pending:
@@ -178,7 +178,8 @@ class CHAPDispatcher:
             else:
                 remaining.append(envelope)
         self.outbox.write_text(
-            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in remaining))
+            "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in remaining),
+            encoding="utf-8")
         return sent, len(remaining)
 
 

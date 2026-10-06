@@ -13,8 +13,8 @@ authors:
   - family-names: Black
     given-names: Philip
     affiliation: Brightbeam AI
-version: 0.1.0
-date-released: 2026-07-12
+version: 0.2.0
+date-released: 2026-10-06
 license: Apache-2.0
 repository-code: "https://github.com/BrightbeamAI/brevet"
 keywords:

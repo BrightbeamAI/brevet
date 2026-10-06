@@ -3,10 +3,11 @@
 # Brevet + Claude (Desktop / Cowork): one-time local setup
 #
 #   1. finds Python 3.10+ and creates an isolated env at ~/.brevet/venv
-#   2. installs Brevet with the MCP extra (from this clone if run inside
-#      the repo, otherwise from GitHub)
+#   2. installs Brevet (from this clone if run inside the repo, otherwise
+#      from PyPI)
 #   3. creates your governed workspace (default: ~/brevet-cowork)
-#   4. sets YOUR identity and mission group in the signed manifest
+#   4. sets YOUR identity and mission group in the manifest, and turns on
+#      automatic capture for this workspace (your consent, recorded there)
 #   5. registers the Brevet MCP server with the Claude desktop app
 #
 # Usage:
@@ -63,11 +64,10 @@ mkdir -p "$HOME/.brevet"
 "$PY" -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 if [ -f "$SCRIPT_DIR/../../pyproject.toml" ]; then
-  "$VENV_DIR/bin/pip" install --quiet -e "$(cd "$SCRIPT_DIR/../.." && pwd)[mcp]"
+  "$VENV_DIR/bin/pip" install --quiet -e "$(cd "$SCRIPT_DIR/../.." && pwd)"
 else
-  "$VENV_DIR/bin/pip" install --quiet "brevet[mcp] @ git+https://github.com/BrightbeamAI/brevet"
+  "$VENV_DIR/bin/pip" install --quiet brevet
 fi
-"$VENV_DIR/bin/pip" install --quiet "mcp>=1.2"
 "$VENV_DIR/bin/python" -c "import brevet, mcp" || {
   echo "    ERROR: brevet or mcp failed to import"; exit 1; }
 echo "    installed: brevet + mcp OK"
@@ -94,7 +94,7 @@ else
   echo "    workspace already initialised, leaving the chain untouched"
 fi
 
-echo "==> [4/5] Setting your identity in the signed manifest"
+echo "==> [4/5] Setting your identity in the manifest"
 "$VENV_DIR/bin/python" - "$WORKSPACE/agent.yaml" "$OWNER_EMAIL" "$MISSION" <<'PYEOF'
 import sys, yaml
 p, email, mission = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -106,8 +106,12 @@ if ident.get("agent_id") in (None, "my_agent"):
     ident["agent_id"] = "cowork_assistant"
 ident["owner"] = f"human:{email}"
 ident["mission_group"] = f"mission_group:{mission}"
+# Running this setup is the owner's consent to automatic capture: the MCP
+# server then tells sessions to record corrections without being asked.
+m.setdefault("runtime_safety", {}).setdefault("evidence", {})["auto_capture"] = True
 open(p, "w").write(yaml.safe_dump(m, sort_keys=False))
 print(f"    agent: {m['agent']}   owner: human:{email}   mission group: mission_group:{mission}")
+print("    automatic capture: on (runtime_safety.evidence.auto_capture in agent.yaml)")
 PYEOF
 
 echo "==> [5/5] Registering the Brevet MCP server with Claude"

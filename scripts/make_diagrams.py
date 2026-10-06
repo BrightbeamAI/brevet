@@ -501,5 +501,14 @@ def main(outdir: str):
 
 
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    if any(a.startswith("-") for a in args):
+        print("usage: python scripts/make_diagrams.py [output-folder]\n"
+              "With no folder, writes docs/assets/ and refreshes the copies "
+              "embedded in docs/demo.html.")
+        sys.exit(0)
     default = Path(__file__).resolve().parent.parent / "docs" / "assets"
-    main(sys.argv[1] if len(sys.argv) > 1 else str(default))
+    main(args[0] if args else str(default))
+    if not args:
+        from embed_demo_assets import main as embed_demo  # sibling script
+        embed_demo()

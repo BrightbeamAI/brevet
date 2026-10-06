@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.BrightbeamAI/brevet",
+  "title": "Brevet",
+  "description": "Change control for what AI agents learn: humans promote, releases are signed, rules can be recalled",
+  "version": "0.2.0",
+  "repository": {
+    "url": "https://github.com/BrightbeamAI/brevet",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "brevet",
+      "version": "0.2.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "BREVET_HOME",
+          "description": "The Brevet workspace to serve: a folder holding agent.yaml and .brevet/. It is created on first use; run 'brevet init' there to write a starter manifest.",
+          "format": "filepath",
+          "isRequired": true,
+          "placeholder": "/path/to/workspace"
+        },
+        {
+          "name": "BREVET_AUTO_CAPTURE",
+          "description": "Set to true to have sessions record corrections without being asked. Leave unset to record only on request.",
+          "format": "boolean",
+          "isRequired": false,
+          "default": "false"
+        }
+      ]
+    }
+  ]
+}

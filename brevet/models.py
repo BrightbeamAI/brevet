@@ -206,7 +206,7 @@ class OverrideRecord(BaseModel):
     ``intent_preserved=True`` is a *refining* override (agreed with the
     decision, changed its expression); ``False`` is a *substituting* override
     (reached a different decision). They are different failure modes and the
-    delta engine treats them as soft and hard labels respectively.
+    dream cycle treats them as soft and hard signals respectively.
     """
 
     override_id: str = Field(default_factory=lambda: new_id("ovr"))
@@ -282,6 +282,7 @@ class ReleaseRecord(BaseModel):
     decision_ref: str | None = None
     rollback_to: str | None = None
     rationale: str | None = None
+    signer_public_key: str = ""
 
 
 class RecallNotice(BaseModel):

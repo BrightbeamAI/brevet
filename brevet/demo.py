@@ -56,7 +56,7 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
     if (directory / ".brevet" / "ledger.jsonl").exists():
         echo(f"demo: '{directory}' already holds a completed run "
              f"(the evidence chain is append-only, so the demo will not "
-             f"overwrite it). Pass a fresh directory: brevet demo <new_dir>")
+             f"overwrite it). Pass a fresh one: brevet demo --directory <new_dir>")
         raise SystemExit(1)
 
     manifest = AgentManifest(
@@ -106,7 +106,9 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
                    if c.kind.value == "prompt_rule")
     for cap in pending:
         agent.dawn(decide=(cap.capability_id, "promote"), approver=MISSION_GROUP)
-    echo(f"3. Dawn: {MISSION_GROUP} promoted all {len(pending)} candidates to Advisory.")
+    n_cases_promoted = len(pending) - 1
+    echo(f"3. Dawn: {MISSION_GROUP} promoted the candidate rule and the "
+         f"{n_cases_promoted} eval cases compiled with it to Advisory.")
 
     # [4] evaluate before/after: the gate takes measured deltas -----------------
     before = agent.evaluate()
@@ -124,7 +126,8 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
                            rationale="First evolved release: vibration/CIP severity rule.")
     lock_n = len(record.promoted_capabilities)
     echo(f"5. Release: 0.1.0 -> 0.2.0 on the trial channel, signed; "
-         f"capabilities.lock lists {lock_n} capabilities.")
+         f"capabilities.lock lists {lock_n} "
+         f"{'capability' if lock_n == 1 else 'capabilities'}.")
 
     # [6] recall ------------------------------------------------------------------
     notice = agent.recall(cand_id,
@@ -143,7 +146,7 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
          f"and the evidence chain .brevet/ledger.jsonl. Run 'brevet status' there.")
 
     (directory / "agent.yaml").write_text(yaml.safe_dump(
-        agent.manifest.model_dump(exclude_none=False), sort_keys=False))
+        agent.manifest.model_dump(exclude_none=False), sort_keys=False), encoding="utf-8")
     return {"overrides": n_overrides, "candidates": summary["candidates"],
             "eval_cases": summary["eval_cases"], "gate_passed": gate["passed_gate"],
             "locked": lock_n, "recalled": 1, "chain_ok": ok, "envelopes": n}

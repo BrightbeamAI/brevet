@@ -1,10 +1,11 @@
 """Override-compiled evals and the conservative gate.
 
 Judgement work rarely has a ready-made test set. Overrides fill the gap:
-each substituting override becomes an eval case whose expected answer is
-the expert's final, and each refining override marks an expression the
-agent got wrong. Eval cases are capabilities themselves (kind=eval_case),
-so the suite has provenance and can be recalled like anything else.
+each substituting override that carries the expert's final becomes an eval
+case whose expected answer is that final. Refining overrides are not
+compiled into cases in this version. Eval cases are capabilities themselves
+(kind=eval_case), so the suite has provenance and can be recalled like
+anything else.
 
 The conservative gate follows the acceptance rule of Self-Harness:
     delta_held_in >= 0  AND  delta_held_out >= 0  AND  max(deltas) > 0

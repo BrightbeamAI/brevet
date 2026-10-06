@@ -30,6 +30,7 @@
     "approved_at": { "type": "string", "format": "date-time" },
     "decision_ref": { "type": ["string", "null"], "description": "CHAP decide.approve envelope id." },
     "rollback_to": { "type": ["string", "null"], "description": "Version restored if this release is rolled back." },
-    "rationale": { "type": ["string", "null"] }
+    "rationale": { "type": ["string", "null"] },
+    "signer_public_key": { "type": "string", "description": "Hex Ed25519 public key that signed this release, recorded on the evidence chain." }
   }
 }

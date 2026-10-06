@@ -145,12 +145,9 @@ def test_apply_patch_semantics():
     assert doc == {"a": {"b": 1}, "xs": [1, 2]}  # input never mutated
 
 
-def test_ingest_skips_corrections_already_captured_in_session(tmp_path):
-    """Both capture paths on one judgment must yield exactly one override.
-
-    Otherwise recurrence inflates and the dream cycle proposes candidates
-    from evidence that never actually recurred.
-    """
+def test_reimport_after_a_lost_cursor_is_skipped(tmp_path):
+    """A verdict imported once is never imported again, even when the cursor
+    file is lost: each CHAP entry is identified by workspace and seq."""
     diff = [{"op": "replace", "path": "/summary", "value": "Formal tone"}]
     sink = _write_sink(tmp_path, _chain({
         "method": "decide.override",
@@ -158,7 +155,6 @@ def test_ingest_skips_corrections_already_captured_in_session(tmp_path):
                    "tags": ["tone-formal"], "intent_preserved": True}}))
     wd = tmp_path / ".brevet"
 
-    # first ingestion stands in for the in-session brevet_record capture
     first = ingest(str(sink), workdir=wd)
     assert first["overrides"] == 1
 
@@ -168,3 +164,71 @@ def test_ingest_skips_corrections_already_captured_in_session(tmp_path):
     assert second["overrides"] == 0
     assert second["duplicates_skipped"] == 1
     assert len(load_overrides(Ledger(wd / "ledger.jsonl"))) == 1
+
+
+def _in_session_override(wd, family, draft, final):
+    Ledger(wd / "ledger.jsonl").append("brevet.override", {
+        "override_id": "ovr_local", "task_id": "env_local", "participant": "human:a@b.com",
+        "intent_preserved": True, "diff": [], "draft": draft, "final": final,
+        "rationale": "too casual", "tags": ["tone-formal"], "task_family": family})
+
+
+def test_in_session_record_absorbs_one_matching_chap_verdict(tmp_path):
+    """Both capture paths on one judgment yield one override, not two."""
+    diff = [{"op": "replace", "path": "/summary", "value": "Formal tone"}]
+    sink = _write_sink(tmp_path, _chain({
+        "method": "decide.override",
+        "params": {"diff": diff, "rationale": "too casual",
+                   "tags": ["tone-formal"], "intent_preserved": True}}))
+    wd = tmp_path / ".brevet"
+    final = {**ARTEFACT, "summary": "Formal tone"}
+    _in_session_override(wd, "write_email", json.dumps(ARTEFACT), json.dumps(final))
+
+    out = ingest(str(sink), workdir=wd)
+    assert out["overrides"] == 0 and out["duplicates_skipped"] == 1
+    assert len(load_overrides(Ledger(wd / "ledger.jsonl"))) == 1
+
+
+def test_identical_corrections_on_different_chap_tasks_all_count(tmp_path):
+    """Three tasks corrected the same way are three judgments: dropping any
+    of them would hide real recurrence from the dream cycle."""
+    diff = [{"op": "replace", "path": "/summary", "value": "Formal tone"}]
+    entries = [_entry(0, "workspace.create", {"profiles": ["core/1.0"]})]
+    seq = 1
+    for i in range(3):
+        tid = f"tsk_{i}"
+        entries += [
+            _entry(seq, "task.create", {"from": "human:a@b.com", "kind": "write_email",
+                                        "input": {"request": f"Draft email {i}"}}),
+            _entry(seq + 1, "task.complete", {"from": "agent:x", "task_id": tid,
+                                              "output": ARTEFACT}),
+            _entry(seq + 2, "decide.override", {"from": "human:a@b.com", "task_id": tid,
+                                                "diff": diff, "rationale": "too casual",
+                                                "tags": ["tone-formal"],
+                                                "intent_preserved": True}),
+        ]
+        seq += 3
+    sink = _write_sink(tmp_path, entries)
+    out = ingest(str(sink), workdir=tmp_path / ".brevet")
+    assert out["overrides"] == 3 and out["duplicates_skipped"] == 0
+
+
+def test_damaged_line_marks_the_chain_failed_but_ingests_the_rest(tmp_path):
+    sink = _write_sink(tmp_path, _chain({"method": "decide.approve", "params": {}}))
+    with sink.open("a") as f:
+        f.write('{"seq": 6, "envelope": {"method": "decide.ove')  # half-written line
+    out = ingest(str(sink), workdir=tmp_path / ".brevet")
+    assert out["chain"] == "failed" and out["approvals"] == 1
+    with pytest.raises(RuntimeError):
+        ingest(str(sink), workdir=tmp_path / ".brevet2", strict=True)
+
+
+def test_structural_check_requires_contiguous_seq():
+    entries = [_entry(0, "workspace.create", {}), _entry(1, "x", {}), _entry(7, "y", {})]
+    assert not _structural_ok(entries)
+
+
+def test_missing_store_path_is_an_error_not_an_empty_store(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        ingest(str(tmp_path / "typo.db"), workdir=tmp_path / ".brevet", workspace=WS)
+    assert not (tmp_path / "typo.db").exists()
