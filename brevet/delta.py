@@ -1,20 +1,21 @@
-"""The delta engine: enacted ⊖ specified.
+"""The dream cycle: mining recurring overrides into candidate capabilities.
 
-One difference engine, two consumers. Reading the ledger's traces and
-overrides against the current signed harness, it clusters recurring
-divergences by failure signature and emits candidate capability objects:
+This module reads the overrides experts recorded against the agent's
+drafts and looks for ones that keep recurring. Each recurring group
+becomes one candidate capability, with no authority until a human
+promotes it at the dawn gate.
 
-- harness-edit candidates (prompt_rule, loop_policy, escalation_rule, ...)
-  -> Self-Harness-style weakness mining, but override-grounded, so it works
-     where no benchmark verifier exists;
-- memory candidates (memory_fragment refs) -> the endogenous pathway of the
-  Tacit Fragments paper, quarantined in the Evidence layer.
+How overrides are grouped: two overrides belong together when they share
+the same task family, the same override kind and the same first tag. The
+kind is *substituting* (the expert reached a different decision; recorded
+as ``hard_fail``) or *refining* (same decision, better expressed;
+``soft_fail``). This grouping key follows the failure signature of
+Self-Harness, phi = (cause, causal_status, mechanism). The paper calls the
+comparison between what was actually done and what the signed harness
+specified the difference signal, written enacted ⊖ specified.
 
-The failure signature follows Self-Harness: phi(r) = (cause, causal_status,
-mechanism), with the cause vocabulary extended by override labels: a
-substituting override is a hard fail, a refining override a soft one.
-Candidates carry NO authority: everything lands in the Evidence layer with
-validation_state=captured, and nothing here can promote anything.
+Nothing here can promote anything: every candidate starts in the Evidence
+layer with validation_state=captured.
 """
 
 from __future__ import annotations
@@ -77,9 +78,11 @@ def mine(
             continue
         rationales = [m.rationale for m in members if m.rationale][:5]
         kind, content, assist_used = _draft_intervention(
-            sig, rationales, assist=assist, ledger=ledger)
+            sig, rationales, assist=assist, ledger=ledger, count=len(members))
+        kind_of = "substituting" if sig.causal_status == "hard_fail" else "refining"
         cand = CapabilityObject(
-            title=f"[candidate] {sig.mechanism}: {sig.causal_status} in {sig.cause}",
+            title=(f"{sig.mechanism}: {len(members)} {kind_of} overrides "
+                   f"in {_family_of(sig)}"),
             kind=kind,
             content=content,
             source_pathway=SourcePathway.endogenous,
@@ -108,30 +111,40 @@ def mine(
     return candidates
 
 
-def _draft_intervention(
-    sig: FailureSignature, rationales: list[str], *, assist=None, ledger=None
-) -> tuple[CapabilityKind, str, bool]:
-    """Map a failure signature to a minimal draft intervention.
+def _family_of(sig: FailureSignature) -> str:
+    """The task family a signature came from, for human-readable text."""
+    return sig.cause.split(":", 1)[1] if sig.cause.startswith("override:") else sig.cause
 
-    Deterministic template by default. If a ModelAssist is provided (local
-    Ollama by default, never a requirement), it may word the rule better;
-    logged as a brevet.model_assist envelope, output always a draft, and the
-    template used as fallback on any failure. Returns (kind, content, assist_used).
+
+def _draft_intervention(
+    sig: FailureSignature, rationales: list[str], *, assist=None, ledger=None,
+    count: int = 0,
+) -> tuple[CapabilityKind, str, bool]:
+    """Draft a candidate's text from a cluster of overrides.
+
+    Deterministic template by default, written in plain language because a
+    human reads it at the dawn gate. If a ModelAssist is provided (local
+    Ollama by default, never a requirement), it may word the rule better; the
+    call is logged as a brevet.model_assist envelope, its output is always a
+    draft, and the template is the fallback on any failure.
+    Returns (kind, content, assist_used).
     """
-    why = ("; ".join(rationales))[:400] or "recurring divergence, no rationale captured"
+    unique = list(dict.fromkeys(r.strip().rstrip(".") for r in rationales if r.strip()))
+    why = "; ".join(unique)[:400] or "no reason was recorded"
+    family = _family_of(sig)
+    times = f" {count} times" if count else " repeatedly"
     if sig.causal_status == "hard_fail":
         template = (
-            f"When task_family matches and context involves '{sig.mechanism}', "
-            f"the drafted decision recurrently diverged from the human decision. "
-            f"Recorded human rationales: {why}. "
-            f"Draft rule: surface this consideration explicitly before deciding, "
-            f"and if it applies, prefer the human-established resolution."
+            f"In {family} work involving '{sig.mechanism}', reviewers changed the "
+            f"agent's decision{times}. Their reason: {why}. "
+            f"Proposed rule: when this situation applies, raise it explicitly and "
+            f"follow the reviewers' decision."
         )
     else:
         template = (
-            f"Refining overrides recur on '{sig.mechanism}' "
-            f"(expression corrected, decision kept). Human rationales: {why}. "
-            f"Draft rule: adjust output style/structure accordingly."
+            f"In {family} work involving '{sig.mechanism}', reviewers kept the "
+            f"agent's decision but reworded it{times}. Their reason: {why}. "
+            f"Proposed rule: change the wording or structure of the output to match."
         )
 
     if assist is not None and getattr(assist, "provider", "none") != "none":

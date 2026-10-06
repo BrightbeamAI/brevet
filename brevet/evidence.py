@@ -1,12 +1,13 @@
-"""Override harvesting.
+"""Harvesting overrides.
 
-The adoption unlock: nobody annotates anything. The diff between what the
-agent drafted and what the human actually shipped IS the override. A
-line-level diff plus a cheap semantic heuristic classifies it as *refining*
-(intent preserved, expression changed) or *substituting* (different decision),
-via CHAP's ``intent_preserved`` field. The delta engine treats substituting
-overrides as hard failure labels and refining ones as soft labels.
-"""
+An expert corrects the agent's draft and uses their own version, the
+final. The difference between draft and final, with the expert's reason,
+is the override, so if the workflow already keeps both, nobody fills in a
+separate form. A line-level diff and a check on decision-bearing words
+classify it as *refining* (decision kept, expression changed;
+``intent_preserved`` true) or *substituting* (a different decision;
+``intent_preserved`` false), using CHAP's field. The dream cycle treats
+substituting overrides as hard signals and refining ones as soft."""
 
 from __future__ import annotations
 

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Documentation rewritten so that each of the paper's terms (override,
+  dream, dawn, evals, release, recall, the authority ladder) comes with a
+  plain explanation: a new README with a worked example, new diagrams in light
+  and dark versions for GitHub's two colour modes, and a glossary that gives
+  each term's plain meaning before its precise definition. The specification,
+  benchmark design and Claude example now state the same requirements as the
+  paper.
+- Added `examples/pump_vibration.py`, the README's worked example as a
+  runnable script: one capability from repeated override through dream, dawn,
+  evals, release and recall.
+- Candidate rules drafted by the dream cycle now read in plain language at the
+  dawn gate, and repeated identical rationales are listed once.
+- Clearer CLI help, `brevet demo` narration and playground text. `brevet
+  verify` now reports where a broken evidence chain first fails.
+- Added `scripts/make_diagrams.py`, which regenerates every diagram and
+  checks that no text overflows its box.
+
 - Added to `examples/claude-cowork`: a CHAP-enabled setup path
   (`--chap-workspace` creates the audit sink), a weekly dawn digest
   task template that relays CHAP verdicts into evidence before mining,
@@ -12,9 +29,9 @@
 
 - Added: **native CHAP evidence source** (`brevet/chap_evidence.py`,
   `brevet chap-ingest`, MCP tool `brevet_chap_ingest`). The inbound
-  counterpart to `chap_bridge`: ingests a CHAP audit chain — a JSONL
+  counterpart to `chap_bridge`: ingests a CHAP audit chain (a JSONL
   `on_audit` sink (file or synced folder), a coordinator SQLite store,
-  or a served coordinator URL — and turns human verdicts into brevet
+  or a served coordinator URL) and turns human verdicts into brevet
   evidence. `decide.override` carries its diff, rationale, tags and
   `intent_preserved` through verbatim; `decide.reject` lands as a
   substituting override; `decide.approve` as accepted-verbatim.

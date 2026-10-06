@@ -1,13 +1,14 @@
-"""Brevet CLI.
+"""Brevet: change control for what AI agents learn.
 
-    brevet init          scaffold agent.yaml + .brevet workdir
-    brevet demo          run the entire governed evolution loop on synthetic
-                         data: record -> dream -> dawn -> release -> recall -> verify
-    brevet dream         mine the ledger into candidate capability objects
-    brevet dawn          list / decide pending candidates
-    brevet release       sign and release the next harness version
-    brevet recall        revoke a capability and flag affected releases
-    brevet verify        replay the evidence chain independently
+    brevet demo          run the governed evolution loop once, offline
+    brevet playground    step through the loop, stage by stage, in a browser
+    brevet init          create a starter manifest (agent.yaml) and .brevet/
+    brevet dream         mine recurring overrides into candidate capabilities
+    brevet dawn          the dawn gate: list candidates, or decide one
+    brevet release       pass the conservative gate, sign and release
+    brevet recall        recall a capability and flag every release with it
+    brevet verify        replay the evidence chain to detect edits
+    brevet status        version, capabilities by authority layer, chain health
 """
 
 from __future__ import annotations
@@ -46,33 +47,37 @@ def _load(workdir: Path) -> tuple[Ledger, CapabilityStore, Signer]:
 
 @app.command()
 def version() -> None:
+    """Show the installed Brevet version."""
     typer.echo(f"brevet {__version__}")
 
 
 @app.command()
 def chap_ingest(
-    source: str = typer.Argument(..., help="audit JSONL file/dir, coordinator .db, or URL"),
+    source: str = typer.Argument(..., help="a CHAP audit file or folder, a coordinator .db file, or a URL"),
     workdir: str = typer.Option(".brevet"),
-    workspace: str = typer.Option(None, help="required for .db / URL sources"),
-    strict: bool = typer.Option(False, help="refuse to ingest when the chain does not verify"),
+    workspace: str = typer.Option(None, help="the CHAP workspace id; needed for .db files and URLs"),
+    strict: bool = typer.Option(False, help="import nothing if the CHAP chain fails its check"),
 ) -> None:
-    """Ingest CHAP review verdicts as brevet evidence (see brevet/chap_evidence.py).
+    """Import CHAP review verdicts as overrides.
 
-    CHAP is the capture surface; brevet remains the learning gate. Ingested
-    overrides/approvals/rejections feed dream exactly like brevet_record."""
+    CHAP is the capture surface; Brevet remains the learning gate. Imported
+    overrides, approvals and rejections feed the dream cycle exactly like
+    overrides recorded with record_final, and a verdict already recorded is
+    never counted twice."""
     from brevet.chap_evidence import ingest
 
     summary = ingest(source, workdir=_workdir(workdir), workspace=workspace,
                      strict=strict)
     typer.echo(
-        f"chap-ingest [{summary['chain']}]: {summary['overrides']} overrides, "
-        f"{summary['approvals']} approvals, {summary['rejections']} rejections "
-        f"from {len(summary['workspaces'])} workspace(s)")
+        f"Imported from CHAP (chain check: {summary['chain']}): "
+        f"{summary['overrides']} overrides, {summary['approvals']} approvals, "
+        f"{summary['rejections']} rejections from {len(summary['workspaces'])} workspace(s); "
+        f"{summary.get('duplicates_skipped', 0)} already recorded and skipped.")
 
 
 @app.command()
 def init(agent: str = "my_agent", directory: str = ".") -> None:
-    """Scaffold a signature-conformant agent.yaml and workdir."""
+    """Create a starter manifest (agent.yaml) and the .brevet workdir."""
     manifest = AgentManifest(
         agent=agent,
         description="Scaffolded by brevet init.",
@@ -104,10 +109,10 @@ def init(agent: str = "my_agent", directory: str = ".") -> None:
 def dream(
     workdir: str = ".brevet",
     model_family: str = "gemma4",
-    assist: str = typer.Option("none", help="drafting assist: none | ollama (local, logged, drafts only)"),
+    assist: str = typer.Option("none", help="model assist: none or ollama (local, drafts only, always logged)"),
     assist_model: str = typer.Option("gemma4:12b"),
 ) -> None:
-    """Run the delta engine over the ledger; emit Evidence-layer candidates."""
+    """The dream cycle: mine recurring overrides into candidates, with no authority until promoted."""
     from brevet.assist import from_name
     wd = _workdir(workdir)
     ledger, store, _ = _load(wd)
@@ -122,33 +127,34 @@ def dream(
     evals = compile_suite([o for o in overrides if not o.intent_preserved])
     for case in evals:
         store.add(case)
-    typer.echo(f"dream: {len(overrides)} overrides -> {len(candidates)} candidates, "
-               f"{len(evals)} compiled eval cases (all Evidence layer, no authority)")
+    typer.echo(f"Dream: {len(overrides)} overrides mined into {len(candidates)} candidates "
+               f"and {len(evals)} eval cases, all at the Evidence layer (no authority).")
 
 
 @app.command()
 def dawn(
     workdir: str = ".brevet",
-    decide: str = typer.Option(None, help="capability_id:outcome (promote|hold|reject|re_elicit)"),
-    approver: str = typer.Option(None, help="human:<email> or mission_group:<name>"),
-    layer: str = typer.Option("advisory", help="target layer when promoting"),
+    decide: str = typer.Option(None, help="capability_id:outcome, where outcome is promote, hold, reject or re_elicit"),
+    approver: str = typer.Option(None, help="who decides: human:<email> or mission_group:<name>"),
+    layer: str = typer.Option("advisory", help="authority layer to promote to: advisory or controlled"),
 ) -> None:
-    """Morning review: list pending candidates, or apply one decision."""
+    """The dawn gate: list pending candidates, or record one decision."""
     wd = _workdir(workdir)
     ledger, store, _ = _load(wd)
     if decide is None:
         pending = store.pending()
         if not pending:
-            typer.echo("dawn: nothing pending")
+            typer.echo("Dawn: no candidates are pending.")
         for c in pending:
             typer.echo(f"  {c.capability_id}  [{c.kind.value}]  x{c.evidence.recurrence_count}  {c.title}")
         return
     cap_id, outcome = decide.split(":", 1)
     if not approver:
-        raise typer.BadParameter("--approver is required for dawn decisions")
+        raise typer.BadParameter("--approver is required: dawn decisions need a named human or mission group")
     cap = dawn_decide(store, ledger, cap_id, outcome, approver=approver,
                       to_layer=AuthorityLayer(layer))
-    typer.echo(f"dawn: {cap_id} -> {cap.validation_state.value} ({cap.authority_layer.value})")
+    typer.echo(f"Dawn: {cap_id} is now {cap.validation_state.value} "
+               f"(authority layer: {cap.authority_layer.value}), decided by {approver}.")
 
 
 @app.command()
@@ -158,10 +164,10 @@ def release(
     to_version: str = typer.Option(...),
     channel: str = typer.Option("shadow"),
     approver: str = typer.Option(...),
-    delta_in: float = typer.Option(0.0, help="held-in eval delta"),
-    delta_out: float = typer.Option(0.0, help="held-out eval delta"),
+    delta_in: float = typer.Option(0.0, help="held-in eval delta (change in pass rate)"),
+    delta_out: float = typer.Option(0.0, help="held-out eval delta (change in pass rate)"),
 ) -> None:
-    """Merge promoted capabilities, sign, and release the next version."""
+    """Pass the conservative gate, then sign and release the next version with its capabilities.lock."""
     wd = _workdir(workdir)
     ledger, store, signer = _load(wd)
     manifest = AgentManifest(**yaml.safe_load(Path(manifest_path).read_text()))
@@ -175,8 +181,8 @@ def release(
         yaml.safe_dump(manifest.model_dump(exclude_none=False), sort_keys=False))
     lock_path = Path(manifest_path).parent / "capabilities.lock"
     lock_path.write_text(lock.model_dump_json(indent=2))
-    typer.echo(f"release: {record.from_version} -> {record.to_version} [{channel}] "
-               f"{len(lock.resolved)} capabilities locked; manifest signed")
+    typer.echo(f"Release: {record.from_version} -> {record.to_version} on the {channel} "
+               f"channel, signed; capabilities.lock lists {len(lock.resolved)} capabilities.")
 
 
 @app.command()
@@ -188,30 +194,34 @@ def recall(
     severity: str = typer.Option("high"),
     issued_by: str = typer.Option(...),
 ) -> None:
-    """Revoke a capability; flag every release whose lockfile contains it."""
+    """Recall a capability and flag every release whose lockfile contains it."""
     wd = _workdir(workdir)
     ledger, store, _ = _load(wd)
     releases = [ReleaseRecord(**e["body"]) for e in ledger.read("brevet.release")]
     notice = do_recall(store, ledger, capability_id, reason=reason,
                        reason_class=reason_class, severity=severity,
                        issued_by=issued_by, releases=releases)
-    typer.echo(f"recall: {capability_id} revoked; "
-               f"{len(notice.affected_releases)} release(s) flagged for {notice.action}")
+    typer.echo(f"Recall: {capability_id} recalled; {len(notice.affected_releases)} "
+               f"release(s) that shipped it flagged for {notice.action}.")
 
 
 @app.command()
 def verify(workdir: str = ".brevet") -> None:
-    """Independently replay the hash chain."""
+    """Replay the hash-linked evidence chain to detect edits."""
     wd = _workdir(workdir)
     ledger, _, _ = _load(wd)
     ok, n = ledger.verify()
-    typer.echo(f"verify: {'OK' if ok else 'BROKEN'} ({n} envelopes)")
+    if ok:
+        typer.echo(f"Verify: evidence chain intact ({n} envelopes).")
+    else:
+        typer.echo(f"Verify: evidence chain BROKEN at envelope {n + 1}; "
+                   f"the {n} envelopes before it are intact.")
     raise typer.Exit(0 if ok else 1)
 
 
 @app.command()
 def status(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
-    """Agent status: version, channel, capabilities by layer, chain integrity."""
+    """Show the version, capabilities by authority layer, and evidence-chain health."""
     wd = _workdir(workdir)
     ledger, store, _ = _load(wd)
     by_layer: dict[str, int] = {}
@@ -226,15 +236,15 @@ def status(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
     if Path(manifest_path).exists():
         m = AgentManifest(**yaml.safe_load(Path(manifest_path).read_text()))
         line = f"{m.agent} v{m.version} [{m.release.get('channel', 'shadow')}]  "
-    typer.echo(f"{line}capabilities={by_layer or {} }  revoked={revoked}  "
-               f"pending={len(store.pending())}  chain={'OK' if ok else 'BROKEN'}/{n}")
+    typer.echo(f"{line}capabilities by layer: {by_layer or {} }  recalled: {revoked}  "
+               f"pending at dawn: {len(store.pending())}  "
+               f"evidence chain: {f'intact ({n} envelopes)' if ok else f'BROKEN at envelope {n + 1}'}")
 
 
 @app.command()
 def playground(port: int = 8765, workdir: str = "",
                open_browser: bool = True) -> None:
-    """Run the governed evolution loop step by step in a local web UI,
-    against a real workspace: real envelopes, signatures, and invariants."""
+    """Step through the governed evolution loop, stage by stage, in a browser."""
     from brevet.playground import serve
     serve(port=port, workdir=Path(workdir) if workdir else None,
           open_browser=open_browser)
@@ -242,7 +252,7 @@ def playground(port: int = 8765, workdir: str = "",
 
 @app.command()
 def mcp(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
-    """Serve the full Brevet lifecycle to any MCP client (stdio)."""
+    """Serve the whole loop as tools to an MCP client such as Claude Desktop (stdio)."""
     try:
         from brevet.mcp_server import serve
     except ImportError as e:
@@ -255,7 +265,7 @@ def mcp(workdir: str = ".brevet", manifest_path: str = "agent.yaml") -> None:
 
 @app.command()
 def demo(directory: str = "brevet_demo") -> None:
-    """The whole loop, deterministically, on synthetic deviation-triage data."""
+    """Run the governed evolution loop once on synthetic deviation-triage data, offline."""
     from brevet.demo import run_demo
     run_demo(Path(directory), echo=typer.echo)
 

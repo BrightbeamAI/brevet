@@ -1,14 +1,13 @@
-"""Eval execution.
+"""Running the evals.
 
-Runs the compiled regression suite (eval-case capability objects) against the
-live wrapped agent. Cases are split deterministically into held-in and
-held-out halves (by content hash), the agent replays each stored task, and a
-scorer compares its output to the human-decided expectation.
+Runs the override-compiled eval cases against the wrapped agent. Cases are
+split into held-in and held-out halves by content hash, the agent replays
+each stored task, and a scorer compares its answer with the expert's
+final.
 
-Two runs make a gate decision: ``compare(before, after)`` yields the deltas
-the conservative gate consumes. Machines check regressions; humans decide
-meaning. Every run is recorded as a ``brevet.eval_run`` envelope.
-"""
+Two runs make a gate decision: ``compare(before, after)`` returns the
+deltas the conservative gate needs. Every run is recorded as a
+``brevet.eval_run`` envelope."""
 
 from __future__ import annotations
 

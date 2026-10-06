@@ -276,7 +276,7 @@
         <h3>&ldquo;Take it back. Prove it.&rdquo;</h3>
         <p>The learned rule turned out to be wrong. Delete it? From where? From
         which versions? And how do you show the regulator it is really gone?</p>
-        <p class="ans">Brevet: recall, CVE-style un-learning, provable from the chain.</p>
+        <p class="ans">Brevet: recall. Withdraw the capability and flag every release that shipped it, on the evidence chain.</p>
       </div>
     </div>
     <div class="imgblock reveal">
@@ -441,7 +441,7 @@
     <h2 class="reveal">Three lines. Your framework stays in charge.</h2>
     <p class="sub reveal"><code class="inline">brevet.wrap()</code> auto-detects ten frameworks,
     generates a signed-manifest scaffold, and starts the evidence chain. It never modifies
-    the wrapped object. Execution stays in your framework; Brevet owns the envelope.</p>
+    the wrapped object. Execution stays in your framework; Brevet keeps the manifest, evidence and releases around it.</p>
 
     <div class="tabs" id="tabs"></div>
     <div id="panes"></div>
@@ -464,7 +464,7 @@
         agent: prompts, tools, loop policy, memory bindings, safety rails. Brevet stores the
         harness as data (<code class="inline">agent.yaml</code>), versioned and signed.</p></div>
       <div class="card reveal"><h3>delta (&Delta; = enacted &#8854; specified)</h3><p>What actually
-        happened (traces, human finals) set against what the signed harness specified.
+        happened (traces and overrides) compared with what the signed harness specified.
         The &#8854; is a structured comparison of matched episodes, not subtraction.
         Every candidate is mined from this difference.</p></div>
       <div class="card reveal"><h3>dream cycle</h3><p>The offline mining run. It computes the delta,
@@ -478,16 +478,16 @@
         panel of humans, never a single expert. It weighs evidence, resolves conflicts, decides
         promotion or rejection, signs releases, and issues recalls, as
         <code class="inline">mission_group:right_first_time</code> does in the demo.</p></div>
-      <div class="card reveal"><h3>override</h3><p>A human judgment, captured as the diff between
-        the agent&rsquo;s draft and the human&rsquo;s shipped final, plus rationale and tags.
+      <div class="card reveal"><h3>override</h3><p>An expert&rsquo;s correction: the difference between the
+        agent&rsquo;s draft and the final actually used, plus the rationale and tags.
         <em>Refining</em>: same decision, better wording. <em>Substituting</em>: a different
         decision, a real failure label.</p></div>
       <div class="card reveal"><h3>capability object</h3><p>The unit of learned capability:
         content, provenance, conditions, confidence, authority, validation-state, plus a kind
         (prompt rule, skill, tool binding, eval case, ...). One lifecycle for all of them.</p></div>
       <div class="card reveal"><h3>authority layers</h3><p><em>Evidence</em>: quarantined, review
-        only. <em>Advisory</em>: may inform suggestions. <em>Controlled</em>: may shape act-class
-        tools after formal review. Authority only increases through a recorded human decision.</p></div>
+        only. <em>Advisory</em>: may inform suggestions. <em>Controlled</em>: may drive actions
+        directly, after mission-group review. Authority only increases through a recorded human decision.</p></div>
       <div class="card reveal"><h3>endogenous / exogenous</h3><p>Endogenous: the system inferred
         it from its own operational history; it enters quarantined, as a hypothesis held to a
         higher evidence bar, and can never promote itself. Exogenous: a human carried it in
@@ -500,7 +500,7 @@
         and evidence references. One file per release.</p></div>
       <div class="card reveal"><h3>evidence chain</h3><p>The append-only ledger:
         <code class="inline">sha256(canonical(envelope) &#8214; prev_hash)</code>. Anyone can replay
-        it offline and detect insertion, alteration, or deletion.</p></div>
+        it offline and detect an inserted or altered entry. Detecting a removed tail or a full rewrite needs a copy of the latest entry kept elsewhere.</p></div>
     </div>
     <p class="more reveal">The full set, including channels, consent scope, failure signatures,
     and validation states, lives in
@@ -541,7 +541,7 @@ toggle.onclick = () => applyTheme(root.dataset.theme === "dark" ? "light" : "dar
 /* ---------- walkthrough ---------- */
 const steps = [
  {tag:"WORK", title:"Tuesday happens", story:
-  `The wrapped agent drafts a triage for <b>DEV-4021, pump P-301 vibration high during CIP</b>. It says <i>severity: minor, log and monitor</i>. The harness it runs is immutable: exactly one signed version, v0.1.0.`,
+  `The wrapped agent drafts a triage for <b>DEV-4021, pump P-301 vibration high during CIP</b>. It says <i>severity: minor, log and monitor</i>. The harness it runs is fixed for the task: exactly one signed version, v0.1.0.`,
   analogy:"Like a co-pilot flying the approved procedure: helpful, but the procedure itself cannot drift mid-flight.",
   code:`<span class="cm">// ledger: two envelopes appended</span>
 { <span class="fn">"kind"</span>: <span class="st">"brevet.task"</span>,
@@ -553,8 +553,8 @@ const steps = [
 { <span class="fn">"kind"</span>: <span class="st">"brevet.artefact"</span>,
   <span class="fn">"body"</span>: { <span class="fn">"output"</span>: <span class="st">"severity: minor ..."</span> },
   <span class="fn">"refs"</span>: [<span class="st">"env_task_..."</span>] }`},
- {tag:"OVERRIDE", title:"The human ships their final", story:
-  `The QA reviewer changes <i>minor</i> to <b>major</b> and adds one sentence of why. Nobody fills in a form: <b>the diff between draft and final IS the override</b>. Brevet harvests it, classifies it as <i>substituting</i> (the decision changed, not just the wording), and chains it.`,
+ {tag:"OVERRIDE", title:"The reviewer corrects the draft", story:
+  `The QA reviewer changes <i>minor</i> to <b>major</b> and adds one sentence of why. Nobody fills in a form: <b>the difference between the draft and her final is the override</b>. Brevet records it, classifies it as <i>substituting</i> (the decision changed, not just the wording), and appends it to the evidence chain.`,
   analogy:"A senior engineer's red pen on a junior's report, except the red ink is now structured data.",
   code:`{ <span class="fn">"kind"</span>: <span class="st">"brevet.override"</span>,
   <span class="fn">"body"</span>: {
@@ -567,7 +567,7 @@ const steps = [
                   seal-wear precursor."</span>,
     <span class="fn">"tags"</span>: [<span class="st">"vibration-cip-underrated"</span>] } }`},
  {tag:"DREAM", title:"Offline, the delta engine mines", story:
-  `Overnight, never mid-task, Brevet computes the <b>delta: enacted &#8854; specified</b>, where human decisions recurrently diverged from what the harness specified. Four overrides share one failure signature, so it emits <b>one candidate rule</b>. The candidate has <b>zero authority</b>. It cannot influence anything.`,
+  `Overnight, never mid-task, the dream cycle looks for <b>overrides that keep recurring</b>: places where human decisions diverged from what the harness specified. Four overrides share one failure signature, so it emits <b>one candidate rule</b>. The candidate has <b>no authority</b> until a human promotes it at dawn.`,
   analogy:"The molecule, not the medicine: discovery is allowed to be bold precisely because approval is a separate act.",
   code:`{ <span class="fn">"capability_id"</span>: <span class="st">"cap_845e127b3d5a"</span>,
   <span class="fn">"kind"</span>: <span class="st">"prompt_rule"</span>,
@@ -598,7 +598,7 @@ human/mission-group approver identity</span>
   code:`<span class="kw">&gt;&gt;&gt;</span> before = agent.evaluate()
 { <span class="fn">"held_in_pass_rate"</span>: <span class="nm">0.00</span>, <span class="fn">"held_out_pass_rate"</span>: <span class="nm">0.00</span> }
 
-<span class="cm"># apply the promoted rule to the harness...</span>
+<span class="cm"># update the agent so it follows the promoted rule...</span>
 
 <span class="kw">&gt;&gt;&gt;</span> after = agent.evaluate()
 { <span class="fn">"held_in_pass_rate"</span>: <span class="nm">1.00</span>, <span class="fn">"held_out_pass_rate"</span>: <span class="nm">1.00</span> }
@@ -634,17 +634,17 @@ human/mission-group approver identity</span>
     <span class="fn">"affected_releases"</span>: [
       { <span class="fn">"version"</span>: <span class="st">"0.2.0"</span>, <span class="fn">"resolved_action"</span>: <span class="st">"rollback"</span> } ] } }`},
  {tag:"VERIFY", title:"Don't take our word for any of it", story:
-  `Every step you just clicked through appended a hash-linked envelope: <code class="inline">sha256(canonical(envelope) &#8214; prev_hash)</code>. Anyone, an auditor, a client, a future you, can replay the chain offline and confirm nothing was inserted, altered, or quietly dropped. The demo&rsquo;s whole story is 44 envelopes.`,
+  `Every step you just clicked through appended a hash-linked envelope: <code class="inline">sha256(canonical(envelope) &#8214; prev_hash)</code>. Anyone, an auditor, a client, a future you, can replay the chain offline and detect any envelope that was inserted or altered. The demo&rsquo;s whole story is 44 envelopes.`,
   analogy:"The flight recorder, not the press release.",
   code:`<span class="kw">&gt;&gt;&gt;</span> agent.verify()
-(<span class="st">true</span>, <span class="nm">44</span>)   <span class="cm">// chain OK across 44 envelopes</span>
+(<span class="st">true</span>, <span class="nm">44</span>)   <span class="cm">// chain intact across 44 envelopes</span>
 
 <span class="kw">$</span> brevet verify
-verify: OK (44 envelopes)
+Verify: evidence chain intact (44 envelopes).
 
 <span class="cm"># tamper with any historical line and:</span>
 <span class="kw">$</span> brevet verify
-<span class="hl">verify: BROKEN (chain fails at envelope 12)</span>`}
+<span class="hl">Verify: evidence chain BROKEN at envelope 12; the 11 envelopes before it are intact.</span>`}
 ];
 
 const stagesEl = document.getElementById("stages"),

@@ -1,4 +1,4 @@
-"""Model assistance: local-first, drafts only, always logged.
+"""Model assist: local, drafts only, always logged.
 
 A model may help the dream cycle word an intervention or summarise a cluster.
 It may never promote, validate, reject, revoke, or retrieve anything (the

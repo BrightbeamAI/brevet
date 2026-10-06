@@ -15,8 +15,8 @@ Three source shapes, auto-detected from the ``source`` string:
   linkage); cryptographic verification needs a coordinator.
 - **SQLite store** (path ending ``.db``): the coordinator's own
   ``SqliteStore``. A real ``chap_coordinator.Coordinator`` is started on
-  the store and queried over ``audit.read`` — nothing here reimplements
-  CHAP — and ``--strict`` runs ``audit.verify_chain`` first.
+  the store and queried over ``audit.read`` (nothing here reimplements
+  CHAP), and ``--strict`` runs ``audit.verify_chain`` first.
 - **Served coordinator** (``http(s)://...``): the same JSON-RPC calls
   POSTed remotely.
 

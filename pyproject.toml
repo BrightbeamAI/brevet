@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "brevet"
 version = "0.1.0"
-description = "Change control for what AI agents learn: signed harnesses, evidence chains, human-gated promotion, override-compiled evals, and capability recall. Wraps LangGraph, Claude Agent SDK, AutoGen, CrewAI, and six more frameworks rather than replacing them."
+description = "Change control for what AI agents learn: corrections become proposed rules, a named person approves each one, approved rules ship in signed versions, and any rule can be withdrawn. Wraps the agent framework you already use."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"

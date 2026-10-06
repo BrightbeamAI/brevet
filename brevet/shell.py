@@ -1,24 +1,27 @@
-"""brevet.wrap: the whole product in one call.
+"""brevet.wrap(): wrap the agent you already have.
+
+The returned object runs your agent unchanged and adds every stage of the
+governed evolution loop:
 
     import brevet
 
-    agent = brevet.wrap(anything)                # zero config
+    agent = brevet.wrap(anything)                # no configuration needed
     r = agent.run("triage DEV-4021", task_family="deviation_triage")
     agent.record_final(r.task_id, edited_text, participant="human:me@org")
 
-    agent.dream()                                # mine candidates + compile evals
-    agent.dawn()                                 # -> pending candidates
+    agent.dream()                                # mine candidates, compile evals
+    agent.dawn()                                 # -> the dawn queue
     agent.dawn(decide=(cap_id, "promote"), approver="human:me@org")
     agent.release(to_version="0.2.0", channel="trial", approver="human:me@org",
                   delta_in=0.2, delta_out=0.1)
     agent.recall(cap_id, reason="...", issued_by="human:me@org")
     agent.verify()
 
-`wrap()` auto-detects the framework (LangGraph, Claude Agent SDK, DeepAgents,
+`wrap()` works out the framework (LangGraph, Claude Agent SDK, DeepAgents,
 AutoGen, LlamaIndex, Pydantic AI, Google ADK, CrewAI, OpenAI Agents, or any
-callable), auto-creates a signature-conformant manifest when none exists, and
-persists everything under `.brevet/`. Every feature is reachable from the
-returned object; the CLI and MCP server are the same functions.
+Python function), creates a starter agent.yaml when none exists, and keeps
+everything under `.brevet/`. Every stage is a method on the returned
+object; the CLI and the MCP server call the same functions.
 """
 
 from __future__ import annotations

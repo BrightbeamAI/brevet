@@ -1,10 +1,10 @@
-"""The Brevet playground: the governed evolution loop, live, in a browser.
+"""The Brevet playground: the governed evolution loop, stage by stage, in a browser.
 
-`brevet playground` starts a local web UI that drives a REAL Brevet
-workspace, one stage at a time: the same code paths, envelopes, signatures,
-and invariants as production, on the demo's synthetic deviation-triage data.
-Each step shows the evidence it appended and the artifact it produced,
-including the structurally rejected self-promotion attempt.
+`brevet playground` starts a local web page that drives a real Brevet
+workspace one stage at a time, using the same library code as everything
+else, on the demo's synthetic data. Each stage shows the envelopes it
+appended and the artefact it produced, including the rejected attempt by
+the dream cycle to promote its own candidate.
 
 Zero additional dependencies: stdlib HTTP server, one standalone page,
 no network calls. Every run uses a fresh workspace directory; the
@@ -118,8 +118,8 @@ class PlaygroundSession:
             sev = next((line.split(": ")[1] for line in r.output.splitlines()
                         if line.startswith("severity")), "?")
             rows.append({"task": task, "draft_severity": sev})
-        return {"summary": f"The agent ran {len(CASES)} tasks under signed "
-                           f"harness 0.1.0. It cannot edit itself while awake.",
+        return {"summary": f"The agent drafted {len(CASES)} severity ratings under signed "
+                           f"harness 0.1.0. The harness stays fixed while the agent works.",
                 "artifact": rows}
 
     def _step_override(self) -> dict:
@@ -133,8 +133,9 @@ class PlaygroundSession:
                 tags=(["vibration-cip-underrated"] if sev == "major" else []))
             if ov:
                 n, last = n + 1, ov
-        return {"summary": f"The reviewer shipped finals; {n} differed and were "
-                           f"harvested as structured overrides. Nobody filled in a form.",
+        return {"summary": f"The reviewer corrected the drafts and used her own finals. "
+                           f"{n} differed from the agent's, and Brevet recorded each as an "
+                           f"override with her reason. Nobody filled in a form.",
                 "artifact": json.loads(last.model_dump_json()) if last else None}
 
     def _step_dream(self) -> dict:
@@ -142,11 +143,11 @@ class PlaygroundSession:
         pending = self.agent.dawn()
         self._cand_id = next(c.capability_id for c in pending
                              if c.kind.value == "prompt_rule")
-        return {"summary": f"Offline, the delta engine mined "
+        return {"summary": f"Offline, the dream cycle mined "
                            f"{counts['overrides']} overrides into "
                            f"{counts['candidates']} candidate rule and "
-                           f"{counts['eval_cases']} compiled eval cases. "
-                           f"Everything sits at Evidence: zero authority.",
+                           f"{counts['eval_cases']} eval cases. All sit at the "
+                           f"Evidence layer, with no authority.",
                 "artifact": [{"capability_id": c.capability_id,
                               "kind": c.kind.value, "title": c.title,
                               "recurrence": c.evidence.recurrence_count,
@@ -161,8 +162,9 @@ class PlaygroundSession:
                     "artifact": {"invariant": "I2", "held": False}}
         except PermissionError as e:
             return {"summary": "The dream cycle tried to promote its own "
-                               "candidate and was structurally rejected. "
-                               "Nothing can approve its own learning.",
+                               "candidate as dream:nightcycle, and Brevet rejected "
+                               "it. Promotion needs a human or mission-group "
+                               "identity.",
                     "artifact": {"invariant": "I2 (no self-authorisation)",
                                  "attempted_approver": "dream:nightcycle",
                                  "error": str(e), "held": True}}
@@ -172,9 +174,9 @@ class PlaygroundSession:
         for cap in pending:
             self.agent.dawn(decide=(cap.capability_id, "promote"),
                             approver=MISSION_GROUP)
-        return {"summary": f"{MISSION_GROUP} reviewed the queue and promoted "
-                           f"{len(pending)} capabilities to Advisory. Every "
-                           f"decision is a recorded envelope.",
+        return {"summary": f"{MISSION_GROUP} reviewed the dawn queue and promoted "
+                           f"{len(pending)} capabilities to Advisory. Each decision "
+                           f"is a promotion envelope on the evidence chain.",
                 "artifact": [{"capability_id": c.capability_id,
                               "promoted_to": "advisory",
                               "approver": MISSION_GROUP} for c in pending]}
@@ -185,11 +187,11 @@ class PlaygroundSession:
         after = self.agent.evaluate()
         self._gate = EvalRunner.compare(before, after)
         g = self._gate
-        return {"summary": f"Override-compiled suite: held-in "
+        return {"summary": f"Override-compiled evals: held-in "
                            f"{before['held_in_pass_rate']:.2f} -> {after['held_in_pass_rate']:.2f}, "
                            f"held-out {before['held_out_pass_rate']:.2f} -> "
                            f"{after['held_out_pass_rate']:.2f}. Conservative gate: "
-                           f"{'PASS' if g['passed_gate'] else 'FAIL'}.",
+                           f"{'pass' if g['passed_gate'] else 'fail'}.",
                 "artifact": {"before": before, "after": after, "gate": g}}
 
     def _step_release(self) -> dict:
@@ -203,8 +205,8 @@ class PlaygroundSession:
             json.loads((self.root / ".brevet" / "capabilities.lock").read_text())
         manifest = yaml.safe_load((self.root / "agent.yaml").read_text())
         return {"summary": "Release 0.1.0 -> 0.2.0 on the trial channel: "
-                           "capabilities locked into the bill of materials, "
-                           "manifest signed with Ed25519.",
+                           "promoted capabilities are locked into "
+                           "capabilities.lock and the manifest is signed with Ed25519.",
                 "artifact": {"capabilities_lock": lock,
                              "signature": manifest.get("signature", {})}}
 
@@ -214,16 +216,16 @@ class PlaygroundSession:
             reason="Engineering confirmed the vibration signature was a sensor "
                    "artefact on the P-301 family; the rule over-generalises.",
             issued_by=MISSION_GROUP)
-        return {"summary": "The rule was proved wrong, so it was withdrawn by "
-                           "content hash and every release that shipped it is "
-                           "flagged. It can never resolve into a lockfile again.",
+        return {"summary": "The rule proved wrong, so it was recalled and "
+                           "every release that shipped it is flagged. It is "
+                           "excluded from future releases.",
                 "artifact": json.loads(notice.model_dump_json())}
 
     def _step_verify(self) -> dict:
         ok, n = self.agent.verify()
-        return {"summary": f"Independent replay of the hash-linked chain: "
-                           f"{'OK' if ok else 'BROKEN'} across {n} envelopes. "
-                           f"Anyone holding the ledger can reproduce this.",
+        return {"summary": f"Replayed the evidence chain: {'intact' if ok else 'BROKEN'} "
+                           f"across {n} envelopes. Anyone holding the ledger can "
+                           f"repeat this check.",
                 "artifact": {"chain_ok": ok, "envelopes": n}}
 
 
@@ -334,8 +336,8 @@ PAGE = r"""<!doctype html>
 <body>
 <header>
   <h1><b>Brevet</b> playground</h1>
-  <div class="sub">The governed evolution loop, live: a real workspace, real envelopes,
-  real signatures, one stage at a time.</div>
+  <div class="sub">The governed evolution loop, stage by stage, on a real workspace:
+  real envelopes, real signatures.</div>
   <div class="ws" id="ws"></div>
 </header>
 <div class="wrap">
@@ -347,26 +349,26 @@ PAGE = r"""<!doctype html>
     <div class="steps" id="steps"></div>
   </div>
   <div>
-    <div class="panel"><h2>What just happened</h2><div id="summary">Press a step to begin.
-      The agent works first; everything else follows from its evidence.</div></div>
-    <div class="panel"><h2>Artifact</h2><pre id="artifact">-</pre></div>
+    <div class="panel"><h2>What just happened</h2><div id="summary">Press a stage to begin.
+      The agent works first; every later stage follows from the overrides experts record.</div></div>
+    <div class="panel"><h2>Artefact</h2><pre id="artifact">-</pre></div>
     <div class="panel"><h2>Evidence chain (append-only)</h2><div id="chain"></div></div>
-    <div class="panel"><h2>Workspace state</h2><div class="stat" id="stat"></div></div>
+    <div class="panel"><h2>Workspace</h2><div class="stat" id="stat"></div></div>
   </div>
 </div>
 <footer>Agents propose deltas; evidence tests them; humans promote them;
 the runtime only ever executes signed versions.</footer>
 <script>
 const META = {
-  work:    ["Work",    "6 tasks under the signed, immutable harness 0.1.0"],
-  override:["Override","the reviewer ships finals; diffs become evidence"],
-  dream:   ["Dream",   "mine Δ = enacted ⊖ specified into candidates"],
-  block:   ["Self-promotion attempt", "dream:nightcycle tries to approve its own idea"],
+  work:    ["Work",    "the agent drafts 6 ratings under signed harness 0.1.0"],
+  override:["Override","the reviewer corrects drafts; each becomes an override"],
+  dream:   ["Dream",   "recurring overrides become a candidate and eval cases"],
+  block:   ["Self-promotion attempt", "dream:nightcycle tries to promote its own candidate"],
   dawn:    ["Dawn",    "the mission group decides, by name"],
-  evals:   ["Evals",   "override-compiled suite; the conservative gate"],
-  release: ["Release", "lock, sign (Ed25519), ship 0.2.0 on trial"],
-  recall:  ["Recall",  "un-learn by content hash, flag releases, prove it"],
-  verify:  ["Verify",  "independent replay of the whole chain"]};
+  evals:   ["Evals",   "overrides replay as tests; the conservative gate"],
+  release: ["Release", "ship 0.2.0 on trial, signed, with capabilities.lock"],
+  recall:  ["Recall",  "recall the rule; flag every release that shipped it"],
+  verify:  ["Verify",  "replay the whole evidence chain"]};
 let state = null;
 async function fetchState(){ state = await (await fetch('/api/state')).json(); render(); }
 function render(){
@@ -386,8 +388,8 @@ function render(){
   document.getElementById('stat').innerHTML =
     `<span>version <b>${st.version}</b></span><span>channel <b>${st.channel}</b></span>` +
     `<span>capabilities <b>${JSON.stringify(st.capabilities)}</b></span>` +
-    `<span>revoked <b>${st.revoked}</b></span><span>envelopes <b>${st.envelopes}</b></span>` +
-    `<span>chain <b class="${st.chain_ok?'ok':'bad'}">${st.chain_ok?'ok':'BROKEN'}</b></span>`;
+    `<span>recalled <b>${st.revoked}</b></span><span>envelopes <b>${st.envelopes}</b></span>` +
+    `<span>chain <b class="${st.chain_ok?'ok':'bad'}">${st.chain_ok?'intact':'BROKEN'}</b></span>`;
 }
 async function runStep(name){
   const r = await (await fetch('/api/step',{method:'POST',

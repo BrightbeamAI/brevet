@@ -1,17 +1,16 @@
-"""Override-compiled evals + the conservative acceptance gate.
+"""Override-compiled evals and the conservative gate.
 
-This is the verifier-gap fix: regulated work has no benchmark oracle, but
-every substituting override is a labelled failure with a human-decided
-expected outcome, and every refining override is a labelled style/retrieval
-miss. The regression suite is therefore *compiled from the Decision Ledger*
-rather than commissioned. Eval cases are themselves capability objects
-(kind=eval_case), so the test suite has provenance too.
+Judgement work rarely has a ready-made test set. Overrides fill the gap:
+each substituting override becomes an eval case whose expected answer is
+the expert's final, and each refining override marks an expression the
+agent got wrong. Eval cases are capabilities themselves (kind=eval_case),
+so the suite has provenance and can be recalled like anything else.
 
-The gate is Self-Harness's conservative acceptance rule:
+The conservative gate follows the acceptance rule of Self-Harness:
     delta_held_in >= 0  AND  delta_held_out >= 0  AND  max(deltas) > 0
-i.e. a candidate may not trade one split against the other, even if the
-total improves. Machines check regressions; humans decide meaning.
-"""
+A change may not improve one half of the tests by making the other half
+worse. It is not a guarantee of no regressions: gains and losses can still
+cancel out inside one half."""
 
 from __future__ import annotations
 

@@ -1,17 +1,21 @@
 # Brevet Specification (draft 0.1)
 
-The normative surface is the five JSON Schemas in `schemas/`; this document
-states the rules a conforming implementation must enforce around them.
+The five JSON Schemas in `schemas/` define Brevet's records. This document
+states the rules a conforming deployment must enforce around them, using
+MUST and SHOULD in their usual standards sense. For plain-language
+definitions, see [GLOSSARY.md](GLOSSARY.md). Version 0.1 of this repository
+implements the records and steps; the README's *Project status* section and
+the paper's implementation table list the requirements a deployment adds.
 
 ## 1. Objects
 
 | Object | Schema | Role |
 |---|---|---|
 | Capability object | `capability_object.schema.json` | The unit of learned capability |
-| Agent manifest | `agent_manifest.schema.json` | The harness as signed data (5-layer signature) |
-| Capabilities lock | `capabilities_lock.schema.json` | Capability Bill of Materials per release |
+| Agent manifest | `agent_manifest.schema.json` | The harness as signed data (five-layer manifest) |
+| Capabilities lock | `capabilities_lock.schema.json` | The capability bill of materials for one release |
 | Release record | `release_record.schema.json` | One transition in the harness lineage |
-| Recall notice | `recall_notice.schema.json` | The un-learning advisory |
+| Recall notice | `recall_notice.schema.json` | The recall notice for one capability |
 
 A **capability object** generalises the Metis tacit-fragment tuple
 ⟨content, provenance, conditions, confidence, authority, validation-state⟩
@@ -30,7 +34,9 @@ only the binding.
 2. **No self-authorisation.** Promotion (any transition raising
    `authority_layer`) MUST be attributable to a human or mission-group
    identity. Implementations MUST reject approver identities in the
-   `agent:*`, `model:*`, `dream:*` namespaces.
+   `agent:*`, `model:*`, `dream:*` namespaces. A deployment that claims
+   separation of authority MUST also authenticate the asserted identity and
+   MUST prevent the proposing process from holding approval privileges.
 3. **Endogenous quarantine.** A capability with `source_pathway=endogenous`
    MUST enter at the Evidence layer strictly as a hypothesis and MUST NOT be
    promoted by any automated step of the process that proposed it. (Mirror of
@@ -58,14 +64,15 @@ return a confident-looking precedent.
   version. Outside the `shadow` channel, unsigned or hash-mismatched
   manifests MUST be refused. The waking agent MUST NOT modify its own
   harness, lockfile, or capability store authority fields.
-- **Sleeping (the dream cycle):** offline, the delta engine computes
-  `Δ = enacted ⊖ specified` over matched episodes (traces + overrides vs the
-  signed harness and procedures), clusters recurring divergences by failure
-  signature `φ = (cause, causal_status, mechanism)`, and emits candidates.
+- **Sleeping (the dream cycle):** offline, the delta engine computes the
+  difference signal `Δ = enacted ⊖ specified` over matched episodes (traces
+  and overrides against the signed harness and procedures), clusters
+  recurring divergences by failure signature
+  `φ = (cause, causal_status, mechanism)`, and emits candidates.
   A candidate MUST record provenance to its supporting traces/overrides and a
   recurrence count. Proposal drafting MAY use a model (local by default);
   model assistance MUST be logged and its output treated as a draft.
-- **Dawn (promotion):** a human reviews ranked candidates and issues one of
+- **Dawn (promotion):** a human or mission group reviews ranked candidates and issues one of
   `promote | hold | reject | re_elicit`. Every decision is an evidence
   envelope.
 
@@ -80,24 +87,34 @@ candidate set MUST pass the conservative gate:
     Δ_held_in ≥ 0  AND  Δ_held_out ≥ 0  AND  max(Δ_held_in, Δ_held_out) > 0
 
 Trading one split against the other is rejection, even if the total improves.
-Stochastic evaluation SHOULD aggregate over repeats.
+The gate is not a no-regression test: gains and losses can cancel within one
+split, so deployments SHOULD also check paired, case-level regressions on
+protected cases. Evaluation results MUST be bound to the exact candidate set,
+cases, scorer and configuration being released. Stochastic evaluation SHOULD
+aggregate over repeats.
 
 ## 6. Releases
 
 A release: (1) resolves all `releasable` capabilities into a lockfile with
 per-entry `content_hash`, `conditions_digest`, approver, and promotion refs;
-(2) content-hashes and signs the manifest (Ed25519 over canonical JSON,
+(2) signs a commitment to both the manifest and the lockfile digest
+(Ed25519 over an agreed canonical encoding, RFC 8785 for interoperability,
 signature excluded from the signed payload); (3) records a release envelope
-with `rollback_to`. Channels progress `shadow → trial → production`; releases
-are earned, never hero-deployed, and reversible by design.
+with `rollback_to`. Channels SHOULD progress `shadow → trial → production`.
+A channel label or rollback target records an intended action; it does not
+deploy or restore an agent by itself.
 
 ## 7. Recall
 
 A recall notice revokes one capability by id and content hash, enumerates
 every release whose lockfile contains it, and drives an action:
 `quarantine | rollback | re_review`. After recall, the capability MUST fail
-`releasable` and MUST NOT resolve into any future lockfile. Recall execution
-MUST be provable from the evidence chain alone.
+`releasable`, and its content hash MUST be excluded from every future lockfile
+while the recall is in force, so identical content cannot return under a new
+id. The recall decision and the affected releases MUST be reconstructible from
+the evidence chain. Showing that running endpoints have stopped using the
+capability additionally requires their acknowledgement. Derived capabilities
+SHOULD be traced through their provenance and reviewed.
 
 ## 8. Evidence
 
@@ -105,9 +122,11 @@ All envelopes (`brevet.task`, `brevet.artefact`, `brevet.override`,
 `brevet.candidate`, `brevet.promotion`, `brevet.release`, `brevet.recall`,
 `brevet.eval_run`) are append-only and hash-linked
 (`sha256(canonical(envelope) || prev_hash)`), independently replayable, and
-CHAP-shaped: when a live CHAP coordinator is configured, envelopes dispatch
-to it under a `brevet/1.0` profile; the local chain remains the
-offline-verifiable copy.
+CHAP-compatible: when a live CHAP coordinator is configured, envelopes are
+mirrored to it; the local chain remains the offline-verifiable copy. Replay
+detects edits that break the chain. Detecting truncation or a complete
+rewrite requires the chain head to be anchored outside the local machine,
+for example in a CHAP coordinator's transparency log (SHOULD).
 
 ## 9. Consent
 

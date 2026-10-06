@@ -1,32 +1,31 @@
 # Case study: governing Claude itself
 
-Claude Desktop and Cowork already form a self-evolving agent. Between
-sessions, Claude learns through its memory, saved skills, and project
-instructions, and that learning is ungoverned: nothing is versioned,
-nobody signs anything, and there is no way to un-learn. This example
-puts what your Claude learns under Brevet's change control. You become
-the dawn gate.
+Claude Desktop and Cowork already learn as you use them. Between
+sessions, Claude picks up new behaviour through its memory, saved skills
+and project instructions, but none of it is versioned, nobody approves it,
+and there is no way to take a lesson back. This example puts what your
+Claude learns under Brevet's change control, with you as the approver.
 
-It is also the fastest way to feel the loop on real work, because the
+It is also the quickest way to see the loop on real work, because the
 agent is one you already use every day, and the corrections you make in
 normal conversation are the only input it needs.
 
 ## What you get
 
-| Loop stage | In this setup |
+| Stage | In this setup |
 |---|---|
-| Work | Claude drafts in your chats, exactly as before |
-| Override | when you ship your version of a draft, the pair (Claude's first draft, your final, your one-line reason, a tag) is recorded automatically to a local ledger, without you asking |
-| Dream | on your command, recurring corrections (3+ with the same tag and family) become candidate rules with zero authority |
-| Dawn | you promote, hold, or reject each candidate in plain chat; your identity is recorded; machine identities are structurally rejected |
-| Release | approved rules lock into a signed `capabilities.lock` and are materialised into one governed rules file that future sessions load |
-| Recall | one command withdraws a rule provably; the rules file is regenerated without it |
-| Verify | any session can replay the hash-linked evidence chain |
+| Work | Claude drafts in your chats, exactly as before. |
+| Override | When you change Claude's draft and use your own version, Claude records the pair (its first draft and your final) as an override, with your one-line reason and a tag, without being asked. |
+| Dream | When you ask, overrides that recur (three or more with the same tag and task family) become candidate rules. Candidates have no authority. |
+| Dawn | You promote, hold or reject each candidate in plain chat. Your identity is recorded, and approvals under machine identities are rejected. |
+| Release | Promoted rules go into a signed release with its `capabilities.lock` and are written to one governed rules file that future sessions load. |
+| Recall | One command recalls a rule; the governed rules file is regenerated without it. |
+| Verify | Any session can replay the evidence chain to detect edits to its history. |
 
-Claude's standing instructions (the capture skill) require it to load
-behavioural rules only from the governed file, only after the chain
-verifies, and never to persist learned rules through memory or other
-side channels. Persistence is earned at the dawn gate or not at all.
+Claude's standing instructions (the capture skill) tell it to load
+learned rules only from the governed rules file, only after the evidence
+chain verifies, and never to persist learned rules through memory or any
+other side channel. A rule lasts only if you promoted it at dawn.
 
 Capture is unprompted by design: you should never have to say "log
 this". Sessions call `brevet_verify` and `brevet_active` at the start,
@@ -39,47 +38,50 @@ once, through whichever surface it already has:
 - **Brevet only** (the default): `brevet_record` captures in-session and
   Brevet's hash-linked ledger is the evidence store. Nothing else is
   required, and nothing leaves the machine.
-- **CHAP as the capture surface**: if reviews are already recorded
-  through the Collaborative Human-Agent Protocol, `brevet_chap_ingest`
-  turns those verdicts into the same evidence (overrides carry CHAP's
-  diff, rationale, and `intent_preserved` verbatim; rejections are
-  substituting judgments; approvals are accepted-verbatim artefacts).
-  Brevet remains the learning gate.
+- **CHAP as the capture surface**: if your review decisions are already
+  recorded with the Collaborative Human-Agent Protocol, `brevet_chap_ingest`
+  imports them as overrides. A CHAP override keeps its diff, rationale, tags
+  and `intent_preserved`; a rejection counts as a substituting override; an
+  approval counts as a draft accepted verbatim. Brevet remains the learning
+  gate.
 
-Running both is safe: ingestion is path-idempotent, so a correction
-already captured in-session is skipped rather than counted twice, and
-the run reports `duplicates_skipped`. This matters because a doubled
-override would inflate recurrence and manufacture candidates from
-evidence that never recurred.
+Running both is safe: an override already recorded in the session is
+skipped rather than counted twice, and the import reports
+`duplicates_skipped`. This matters because an override counted twice would
+make a one-off look like recurrence and produce a candidate from evidence
+that never recurred.
 
-**Reaching a coordinator that lives behind MCP.** If your CHAP
-coordinator is a SQLite store or a URL, point `brevet_chap_ingest`
-straight at it. If it is reachable only as MCP tools, there is no path
-to open, so relay it: `chap_audit_read` returns entries in the
-coordinator's own shape, append them verbatim to
+**Reaching a CHAP coordinator that is only available through MCP.** If
+your CHAP coordinator is a database file or a URL, point
+`brevet_chap_ingest` straight at it. If it is reachable only as MCP tools,
+there is no file to open, so copy its records across: `chap_audit_read`
+returns entries in the coordinator's own format; append them unchanged to
 `<workspace>/chap-sink/audit-<workspace_id>.jsonl`, and ingest that
 directory. The scheduled digest in `digest/dawn-digest.md` does exactly
 this, skips cleanly when there are no new verdicts, and never lets a
 relay failure block the digest. Run `setup.sh --chap-workspace <id>` to
 create the sink.
 
-**Permission friction.** Governance that interrupts the work gets
-switched off, so make the tools pre-approved: choose "Always allow" the
+**Permission prompts.** Checks that interrupt the work tend to get
+switched off, so pre-approve the tools: choose "Always allow" the
 first time a `brevet_*` prompt appears. On Team and Enterprise plans an
 organisation setting (Organization settings, Cowork, Permissions,
 "Allow 'Always allow' for connector tools") may need enabling first,
 and a project-level `.claude/settings.json` listing the `mcp__brevet__*`
 tools under `permissions.allow` covers sessions in that project.
 
-## An honest limitation
+## What Brevet can and cannot enforce here
 
-Brevet cannot intercept Claude's execution the way it wraps a Python
-agent, because the assistant's harness is not yours to sign. Immutable
-execution (requirement R2) therefore holds by verification, not
-prevention: sessions check the chain and the governed file's hashes
-before following any learned rule, and drift is detected rather than
-blocked. Attribution, inventory, gated promotion, and provable recall
-hold fully.
+Brevet cannot sit between you and Claude the way it wraps a Python agent,
+because the assistant's harness belongs to its vendor, not to you. So the
+controls here detect problems rather than prevent them. Sessions verify the
+evidence chain and the governed rules file before following any learned
+rule, and a mismatch
+shows up rather than being blocked. The records are complete: who promoted
+each rule, what each release contains and what was recalled. But a passing
+check cannot prove that Claude read only the governed rules file, or that it
+stopped using a recalled rule already in its context. The paper's case study
+describes this boundary in full.
 
 ## Before you run it
 
@@ -88,7 +90,7 @@ Three values are yours to choose; nothing else needs editing.
 | Value | Flag | Where it ends up |
 |---|---|---|
 | Your email | `--owner you@example.com` | `agent.yaml` as `human:<email>`, the accountable identity on every capture and decision |
-| Your review board's name | `--mission-group review_board` | `agent.yaml` as `mission_group:<name>`, the approver identity you promote with |
+| Your mission group's name | `--mission-group review_board` | `agent.yaml` as `mission_group:<name>`, the approver identity you promote with |
 | Your CHAP workspace id | `--chap-workspace wsp_...` | creates the audit sink; omit entirely if you do not use CHAP |
 
 After setup, two placeholders in `digest/dawn-digest.md` take the same
@@ -140,13 +142,13 @@ records only in those families, or when you say "log this to brevet".
 ## A week in the life
 
 Monday: you ask for the weekly summary; Claude drafts; you reorder it
-so escalations come first and ship it. Claude records one override,
+so escalations come first and send it. Claude records one override,
 tagged `escalations-first`, with your one-line reason. Wednesday and
 Friday: the same correction, recorded the same way. Saturday: you say
-"brevet dream, show me pending", and one candidate rule appears with
-recurrence 3 and links to all three overrides. You say "promote it as
+"brevet dream, show me pending", and one candidate rule appears, built
+from all three overrides. You say "promote it as
 mission_group:review_board", then "release 0.2.0 on trial". The rule is
-signed into the lockfile and written to the governed file; from now on,
+signed into `capabilities.lock` and written to the governed rules file; from now on,
 summaries start with escalations because you approved that, and the
 record says so. A month later, if the rule stops being right:
 "recall it", and it is provably gone.
@@ -158,7 +160,7 @@ ledger, with capability ids, approvers, and rationales.
 
 Everything lives in your workspace, on your machine: the ledger
 (`.brevet/ledger.jsonl`, append-only, hash-linked), the capability
-store, the Ed25519 keys, the lockfile, and the governed rules file.
+store, the Ed25519 keys, `capabilities.lock` and the governed rules file.
 Recorded content is the task description, Claude's draft, the diff to
 your final, your one-line rationale, and tags, attributed to the owner
 identity in `agent.yaml`. Nothing is sent anywhere.

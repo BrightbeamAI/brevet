@@ -9,9 +9,11 @@ or register in a client config:
 
     {"mcpServers": {"brevet": {"command": "brevet", "args": ["mcp"]}}}
 
-Authority invariants hold over MCP exactly as in code: promotion tools
-require an approver identity and reject agent/model/dream namespaces, so an
-agent calling these tools still cannot promote its own capabilities.
+Authority invariants hold over MCP as in code: promotion tools require an
+approver identity and reject the agent:, model: and dream: namespaces. The
+check is on the identity supplied, not on who is calling; a deployment that
+must stop an agent from promoting its own candidates also needs
+authenticated callers.
 
 Requires the optional dependency:  pip install "mcp>=1.2"
 (installed automatically by the [mcp] extra when installing from the
@@ -103,7 +105,7 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
                       rationale: str = "", tags: str = "",
                       participant: str = "") -> str:
         """Record one completed task as evidence: the agent's draft and the
-        human's shipped final. Call this AUTOMATICALLY at task end whenever
+        expert's final (the version actually used). Call this AUTOMATICALLY at task end whenever
         the user corrected, edited, or approved the output; do not wait to
         be asked. An empty final means accepted verbatim. The participant
         defaults to the workspace owner. Recording creates evidence only;
@@ -144,7 +146,7 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
         """Ingest CHAP review verdicts as brevet evidence: overrides (diff +
         rationale + intent_preserved carried through verbatim), rejections
         (substituting judgments), and approvals (accepted verbatim). CHAP is
-        the capture surface; brevet remains the learning gate — ingestion
+        the capture surface; brevet remains the learning gate. Ingestion
         creates evidence only and grants no authority. ``source`` is an audit
         JSONL file/dir (e.g. a synced ~/Dropbox/chap-audit folder), a
         coordinator SQLite ``.db``, or a served coordinator URL (these two
@@ -279,8 +281,8 @@ def build_server(workdir: str = ".brevet", manifest_path: str = "agent.yaml") ->
     @mcp.tool()
     def brevet_recall(capability_id: str, reason: str, issued_by: str,
                       reason_class: str = "incorrect", severity: str = "high") -> str:
-        """Withdraw a capability: revoke it, flag every release whose lockfile
-        contains it, and chain the recall notice as evidence."""
+        """Recall a capability: withdraw it, flag every release whose lockfile
+        contains it, and append the recall notice to the evidence chain."""
         ledger = _ledger()
         releases = [ReleaseRecord(**e["body"]) for e in ledger.read("brevet.release")]
         notice = _recall(_store(), ledger, capability_id, reason=reason,

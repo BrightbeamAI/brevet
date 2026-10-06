@@ -1,14 +1,19 @@
-"""Dawn queue, releases, and recall.
+"""The dawn gate, releases and recall.
 
-The circadian contract: the waking agent is immutable (it executes exactly
-one signed release); adaptation happens offline; what the agent wakes up
-knowing is a human decision, taken at the dawn gate, recorded as evidence.
+This module holds the capability store and the three stages that change
+what an agent may use: the dawn gate, releases and recall.
 
-Nothing in this module can promote a capability by itself. The promotion
-functions REQUIRE an approver identity, and endogenous candidates can never
-be promoted by the same automated process that proposed them (mirrors the
-Metis rule: endogenous fragments never self-promote).
-"""
+This is the circadian contract: a conforming deployment runs exactly one
+signed release and changes it only between releases, and what the next
+release contains is a human decision taken at the dawn gate. The generic wrapper
+records versions but does not by itself stop a host framework from
+persisting other changes; see the paper's implementation table.
+
+Nothing in this module can promote a capability by itself. Promotion
+functions require an approver identity and reject the ``agent:``,
+``model:`` and ``dream:`` namespaces, so an endogenous candidate cannot be
+promoted under a machine identity (the same rule Metis applies to tacit
+fragments)."""
 
 from __future__ import annotations
 

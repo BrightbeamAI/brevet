@@ -1,47 +1,54 @@
 # Glossary
 
-Brevet's vocabulary comes from Brightbeam's research on governed agent
-adaptation (the CHAP protocol, the Metis governed-memory model, and the
-tacit-knowledge work behind them). Every term below is used precisely in the
-code, the schemas, and [SPEC.md](SPEC.md).
+The terms below are the ones the paper, the code, the schemas in `schemas/`
+and [SPEC.md](SPEC.md) all use. Each entry gives the plain meaning first and
+the precise detail second.
 
 ## The loop
 
-| Term | Meaning |
-|---|---|
-| **harness** | Everything around the model that makes it an agent: prompts, tool bindings, loop policy, memory bindings, safety rails. In Brevet the harness is data (`agent.yaml`), versioned and signed, never an invisible pile of glue code. |
-| **waking / sleeping** | The circadian contract. Waking: the agent executes exactly one signed harness version and cannot modify itself. Sleeping: adaptation runs offline, on evidence, with zero authority. |
-| **delta (Δ = enacted ⊖ specified)** | The difference signal between what actually happened (traces and human finals: the *enacted*) and what the signed harness and procedures specified. The ⊖ operator is a structured comparison of episodes matched on task family and conditions, not arithmetic subtraction. A gap may be genuine adaptation, or error, drift, or contamination; only recurrence across cases plus later validation can tell these apart. |
-| **dream cycle** | The offline mining run (`agent.dream()` / `brevet dream`). Computes the delta, clusters recurring divergences by failure signature, and emits candidate capabilities plus compiled eval cases. Nothing it produces carries any authority. |
-| **failure signature** | The clustering key for divergences: (cause, causal status, mechanism). A substituting override is a hard fail; a refining override is a soft fail. |
-| **dawn gate** | The human review moment (`agent.dawn()` / `brevet dawn`). A named human or mission group applies one of `promote`, `hold`, `reject`, `re_elicit` to each candidate. Every decision is recorded as evidence. |
-| **override** | A human judgment over an agent output, captured as the diff between the agent's draft and the human's shipped final, plus rationale and tags. Harvested automatically; nobody fills in a form. |
-| **refining vs substituting** | The two override classes. Refining: the human kept the decision and changed its expression (a style or retrieval miss). Substituting: the human reached a different decision (a real failure). The delta engine treats them as soft and hard labels respectively. |
-| **conservative gate** | The release acceptance rule: `Δ held-in ≥ 0 AND Δ held-out ≥ 0 AND max > 0`. A change may not trade one split against the other, even if the total improves. |
-| **channel** | The exposure level of a release: `shadow` (observed, not acted on), `trial` (limited), `production`. Releases are earned through the channels, never hero-deployed. |
+| Term | Plain meaning | Detail |
+|---|---|---|
+| **governed evolution loop** | The cycle through which an agent's learning is proposed, reviewed, tested, released and, if necessary, taken back. | Seven stages: work, override, dream, dawn, evals, release and recall. Every stage appends an envelope to the evidence chain. |
+| **circadian contract** | The rule that the agent works without changing itself, and learning happens separately, between versions. | Awake, the agent executes one signed harness version. While it sleeps, the dream cycle mines evidence with no authority. At dawn, humans decide what the next version contains. |
+| **work** | The agent doing its job. | `agent.run()`. Each task and draft is recorded as `brevet.task` and `brevet.artefact` envelopes. |
+| **draft** and **final** | The draft is what the agent produced. The final is the version the expert actually used, after any correction. | If the final matches the draft, the draft was accepted as it was and no override is recorded. |
+| **override** | An expert's correction of a draft, together with the reason. | Recorded by `agent.record_final()` as the line-by-line difference between draft and final, plus the expert's rationale, optional tags and identity. If the workflow already keeps the draft and the final, nobody fills in a separate form. |
+| **refining** and **substituting** override | A refining override keeps the agent's decision and changes how it is expressed. A substituting override reaches a different decision, for example *minor* becomes *major*. | Stored as `intent_preserved` (true for refining, false for substituting), a field taken from CHAP. The dream cycle treats them as soft and hard signals, grouped as `soft_fail` and `hard_fail`. Brevet infers the kind from decision-bearing words such as severity labels; it cannot reliably read intent from free prose. |
+| **dream** (dream cycle) | The offline step that looks for overrides that keep recurring and proposes a candidate capability for each. | `agent.dream()` or `brevet dream`. It examines the **difference signal** Δ = enacted ⊖ specified: a structured comparison of what was actually done with what the signed harness specified, not an arithmetic subtraction. Overrides are grouped by **failure signature**: task family, override kind and first tag. A group needs at least three overrides before a candidate is proposed. The cycle also compiles overrides into eval cases. Nothing it produces has authority. |
+| **candidate** | A capability the dream cycle has proposed and nobody has approved. | Every candidate enters the Evidence layer of the authority ladder. |
+| **dawn** (dawn gate) | The step where a named human or mission group reviews each candidate and decides. | `agent.dawn()` lists the queue; `agent.dawn(decide=(id, outcome), approver=...)` records one decision. Outcomes: `promote`, `hold` (wait for more evidence), `reject`, and `re_elicit` (go back to the experts whose overrides produced it). Each decision is a `brevet.promotion` envelope naming the approver. |
+| **evals** | The overrides, replayed as tests, to check a change before it ships. | `agent.evaluate()`. Each substituting override becomes an eval case whose expected answer is the expert's final. Cases are split into held-in and held-out halves by their content hash. Eval cases are capabilities themselves, so they can be recalled if a label proves wrong. |
+| **conservative gate** | The release rule: neither half of the evals may get worse, and at least one must improve. | `Δin ≥ 0 AND Δout ≥ 0 AND max > 0`, following Self-Harness. It stops a change that improves one half while worsening the other. It is not a no-regression test: gains and losses can still cancel within one half. Enforced for `trial` and `production` releases. |
+| **release** | A new version of the agent, signed, like a software release. | `agent.release()`. It resolves promoted capabilities into `capabilities.lock`, signs the manifest with Ed25519 and records a `brevet.release` envelope with the rollback target. |
+| **channel** | How widely a release is used. | `shadow` (observed, not acted on), `trial` (limited exposure) and `production`. |
+| **recall** | Taking a capability back after it proves wrong, like a product recall. | `agent.recall()`. It withdraws the capability, flags every release that shipped it and records the reason and the requested action (`quarantine`, `rollback` or `re_review`) in a recall notice. Version 0.1 recalls by identifier; excluding identical content under a new identifier is a deployment requirement. |
 
-## Objects and authority
+## Capabilities and authority
 
-| Term | Meaning |
-|---|---|
-| **capability object** | The unit of learned capability: ⟨content, provenance, conditions, confidence, authority, validation-state⟩ plus a `kind`. One object model for everything an agent can learn; one lifecycle; one revocation mechanism. |
-| **kind** | What a capability is: `prompt_rule`, `loop_policy`, `tool_binding`, `skill`, `eval_case`, `escalation_rule`, or `memory_fragment` (a binding to a Metis-governed fragment). |
-| **authority layer** | How much a capability may influence behaviour. `evidence`: quarantined, exists only for review. `advisory`: may inform suggest-class behaviour. `controlled`: may shape act-class tool behaviour, requires formal review. Authority only ever increases through a recorded human decision. |
-| **endogenous / exogenous** | Where a capability came from. Endogenous: the system inferred it from the agent's own operational history; it enters the Evidence layer strictly as a hypothesis, flagged with endogenous provenance, held to a higher evidence bar, and it can never be promoted by the process that proposed it. Exogenous: a human carried it in or confirmed it (for example, compiled eval cases whose labels are human finals). Reviewers use exogenous human judgment to ground and verify endogenous inferences: the pathway changes how a capability is found, not what it must satisfy to be trusted. |
-| **mission group** | The accountable review board: a named panel of humans, never a single expert, that examines candidate capabilities, weighs the evidence and its normative alignment, resolves conflicts, decides promotion or rejection, and can request further elicitation (`re_elicit`). In Brevet, mission groups also sign releases and issue recalls. Identity namespace `mission_group:*` (for example `mission_group:right_first_time`). |
-| **approver identity** | The recorded identity behind a promotion, release, or recall: `human:<who>` or `mission_group:<which>`. Identities in `agent:*`, `model:*`, or `dream:*` namespaces are structurally rejected: nothing can approve its own learning. |
-| **validation state** | Where a capability is in its life: `captured` through `promoted_to_advisory` / `promoted_to_controlled`, or `held`, `rejected`, `re_elicit`, `withdrawn`, `superseded`, `expired`. Rejection is not deletion; the record stays. |
-| **conditions (applicability context)** | The envelope a capability is valid in: task family, domain, model family, risk class, exclusions, validity window. Evaluated computationally before any similarity ranking; exclusions veto. |
+| Term | Plain meaning | Detail |
+|---|---|---|
+| **capability** (capability object) | Anything the agent learns: a rule, a skill, a tool binding, an eval case and so on. | One structure for all of them: content, provenance, conditions, confidence, authority and validation state, plus a `kind`. One lifecycle and one recall mechanism for every kind. |
+| **kind** | What sort of capability it is. | `prompt_rule`, `loop_policy`, `tool_binding`, `skill`, `eval_case`, `escalation_rule` or `memory_fragment` (a binding to a memory item that Metis keeps). |
+| **authority ladder** (authority layer) | How much a capability may influence the agent. | **Evidence**: no operational authority; humans can inspect it and evals can test it. **Advisory**: may inform drafts that a human still checks. **Controlled**: may shape actions with no human between draft and effect, and needs mission-group review. Authority rises only through a recorded human decision. |
+| **validation state** | Where a capability is in its life. | `captured`, `promoted_to_advisory`, `promoted_to_controlled`, `held`, `rejected`, `re_elicit`, `withdrawn`, `superseded` or `expired`. Rejection is not deletion: rejected and recalled capabilities stay on record. |
+| **conditions** | Where a capability applies. | Task family, domain, risk class, exclusions and validity window. The intended policy withholds a capability whose conditions do not match, and an exclusion always vetoes. |
+| **endogenous** and **exogenous** | Endogenous: inferred by the system from the agent's own records. Exogenous: contributed or confirmed by a human. | Endogenous candidates enter at Evidence as hypotheses, are held to a higher evidence bar, and can never be promoted by the process that proposed them. Eval cases are exogenous, because their labels are human finals. |
 
-## Evidence and change control
+## People and approval
 
-| Term | Meaning |
-|---|---|
-| **evidence envelope** | One record in the ledger: `brevet.task`, `brevet.artefact`, `brevet.override`, `brevet.candidate`, `brevet.promotion`, `brevet.release`, `brevet.recall`, `brevet.eval_run`, or `brevet.model_assist`. |
-| **evidence chain** | The append-only ledger linking every envelope: `chain_hash = sha256(canonical(envelope) ‖ prev_hash)`. Anyone can replay it offline (`brevet verify`) and detect insertion, alteration, or deletion. |
-| **capabilities.lock** | The capability bill of materials for one release: every approved capability with its content hash, authority layer, approver, and evidence references. Answers "what does this agent know and who approved it" in one file. |
-| **release record** | One transition in the harness lineage: from-version, to-version, channel, locked capabilities, eval summary, approver, rollback target. |
-| **recall** | Un-learning with proof: revoke one capability by id and content hash, enumerate every release whose lockfile contains it, drive `quarantine`, `rollback`, or `re_review`. A recalled capability can never resolve into a lockfile again. |
-| **consent scope** | Declared in the manifest: which human-derived material (overrides, traces) the dream cycle may mine. Withdrawal of consent is honoured by recall, never by silent deletion. |
-| **model assist** | Optional local-model drafting inside the dream cycle (Ollama by default). Drafts only, always logged as `brevet.model_assist` with `human_review_required: true`, never authoritative, fails soft to deterministic templates. |
-| **Expert Agent Signature** | The five-layer manifest structure `agent.yaml` conforms to: identity and policy, prompt architecture, cognitive core, bindings, runtime safety. |
+| Term | Plain meaning | Detail |
+|---|---|---|
+| **mission group** | The accountable review board for the work: a named panel of humans, never a single expert. | It weighs candidates, resolves conflicts, promotes to Controlled, signs releases and issues recalls. Identity form: `mission_group:<name>`, for example `mission_group:quality_team`. |
+| **approver identity** | The human or group recorded as making a decision. | `human:<who>` or `mission_group:<which>`. Identities in the `agent:`, `model:` and `dream:` namespaces are rejected. Version 0.1 records the identity it is given; proving that the named human really decided needs authenticated identities from the deployment, such as CHAP participant keys. |
+| **consent scope** | Whose overrides the dream cycle may learn from. | Declared in the manifest. Consent withdrawal is honoured through recall, never by silent deletion. |
+
+## Records
+
+| Term | Plain meaning | Detail |
+|---|---|---|
+| **evidence chain** (ledger) | The record of every step, written so that edits to the history can be detected. | An append-only file, `.brevet/ledger.jsonl`. Each envelope's hash covers the previous one: `chain_hash = sha256(encode(envelope) ‖ prev_hash)`. `brevet verify` replays it and detects any edit that breaks the chain. Detecting a complete rewrite needs the latest chain hash held elsewhere, for example by a CHAP coordinator. |
+| **evidence envelope** | One record on the evidence chain. | Kinds: `brevet.task`, `brevet.artefact`, `brevet.override`, `brevet.candidate`, `brevet.promotion`, `brevet.eval_run`, `brevet.release`, `brevet.recall` and `brevet.model_assist`. Envelopes follow CHAP's envelope model. |
+| **content hash** | A short code computed from a capability's exact content. Any change to the content changes the code. | SHA-256 of the content. Lockfiles record it, so an auditor can tell when content changed under the same identifier. |
+| **capabilities.lock** | The capability bill of materials for one release: what the agent has learned and who approved each piece. | Each entry records the capability's identifier, kind, content hash, authority layer, a digest of its conditions, its approver and references to its evidence. It plays the role a software bill of materials plays for code. |
+| **harness** and **manifest** | The harness is everything around the model that makes it an agent: instructions, tools, loop policy, memory bindings and safety settings. The manifest is the harness written down as one versioned file. | `agent.yaml`, in five layers: identity and policy, prompt architecture, cognitive core, bindings, and runtime safety. Signed at each release. |
+| **model assist** | Optional help from a local language model in wording a candidate. | Off by default. Each use is logged as `brevet.model_assist` and marked for human review. The wording gains no authority from its fluency, and Brevet falls back to its own templates when no model is installed. |

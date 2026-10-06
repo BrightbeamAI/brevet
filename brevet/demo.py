@@ -1,4 +1,4 @@
-"""End-to-end demonstration of the few-lines API on synthetic data.
+"""The end-to-end demonstration behind `brevet demo`, on synthetic data.
 
 A deviation-triage agent drafts classifications; a quality reviewer overrides
 some (same recurring reason); `dream()` mines the overrides; the dawn gate
@@ -91,13 +91,14 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
                        "seal-wear precursor; treat as major." if final_sev == "major" else ""),
             tags=(["vibration-cip-underrated"] if final_sev == "major" else []))
         n_overrides += 1 if ovr else 0
-    echo(f"[1] wrapped '{agent.adapter.name}' agent; ran {len(CASES)} tasks; "
-         f"harvested {n_overrides} overrides")
+    echo(f"1. Work and override: the agent drafted {len(CASES)} severity ratings; "
+         f"the reviewer overrode {n_overrides}, each with a reason.")
 
     # [2] dream ----------------------------------------------------------------
     summary = agent.dream()
-    echo(f"[2] dream: {summary['candidates']} candidate(s), {summary['eval_cases']} "
-         f"eval case(s): all Evidence layer, zero authority")
+    echo(f"2. Dream: {summary['candidates']} candidate rule mined from the recurring "
+         f"override, plus {summary['eval_cases']} eval cases, all at the Evidence layer "
+         f"(no authority).")
 
     # [3] dawn -----------------------------------------------------------------
     pending = agent.dawn()
@@ -105,40 +106,41 @@ def run_demo(directory: Path, echo: Callable[[str], None] = print) -> dict:
                    if c.kind.value == "prompt_rule")
     for cap in pending:
         agent.dawn(decide=(cap.capability_id, "promote"), approver=MISSION_GROUP)
-    echo(f"[3] dawn: {len(pending)} promoted to advisory by {MISSION_GROUP}")
+    echo(f"3. Dawn: {MISSION_GROUP} promoted all {len(pending)} candidates to Advisory.")
 
     # [4] evaluate before/after: the gate takes measured deltas -----------------
     before = agent.evaluate()
     agent.adapter.target = _evolved_stub  # simulate the promoted rule applied
     after = agent.evaluate()
     gate = EvalRunner.compare(before, after)
-    echo(f"[4] evals: held-in {before['held_in_pass_rate']:.2f}->"
-         f"{after['held_in_pass_rate']:.2f}, held-out {before['held_out_pass_rate']:.2f}->"
-         f"{after['held_out_pass_rate']:.2f}, gate "
-         f"{'PASS' if gate['passed_gate'] else 'FAIL'}")
+    n_cases = before["n_cases"]
+    echo(f"4. Evals: {n_cases - len(before['failures'])}/{n_cases} passed before the "
+         f"change, {n_cases - len(after['failures'])}/{n_cases} after. "
+         f"Conservative gate: {'pass' if gate['passed_gate'] else 'fail'}.")
 
     # [5] signed release ---------------------------------------------------------
     record = agent.release(to_version="0.2.0", channel="trial", approver=MISSION_GROUP,
                            delta_in=gate["delta_held_in"], delta_out=gate["delta_held_out"],
                            rationale="First evolved release: vibration/CIP severity rule.")
     lock_n = len(record.promoted_capabilities)
-    echo(f"[5] release: 0.1.0 -> 0.2.0 [trial], {lock_n} capabilities locked, "
-         f"manifest signed (ed25519)")
+    echo(f"5. Release: 0.1.0 -> 0.2.0 on the trial channel, signed; "
+         f"capabilities.lock lists {lock_n} capabilities.")
 
     # [6] recall ------------------------------------------------------------------
     notice = agent.recall(cand_id,
                           reason="Engineering confirmed vibration signature was a sensor "
                                  "artefact on the P-301 family; rule over-generalises.",
                           issued_by=MISSION_GROUP)
-    echo(f"[6] recall: {cand_id} withdrawn; {len(notice.affected_releases)} release(s) "
-         f"flagged for rollback")
+    n_aff = len(notice.affected_releases)
+    echo(f"6. Recall: engineers found a faulty sensor, so the rule was recalled; "
+         f"{n_aff} release{'s' if n_aff != 1 else ''} flagged for rollback.")
 
     # [7] verify --------------------------------------------------------------------
     ok, n = agent.verify()
-    echo(f"[7] verify: chain {'OK' if ok else 'BROKEN'} across {n} envelopes")
+    echo(f"7. Verify: evidence chain {'intact' if ok else 'BROKEN'} across {n} envelopes.")
     echo("")
-    echo("The loop, once around: work -> evidence -> dream -> dawn -> evals -> "
-         "signed release -> recall -> replayable proof.")
+    echo(f"Records are in '{directory}': the manifest agent.yaml, capabilities.lock "
+         f"and the evidence chain .brevet/ledger.jsonl. Run 'brevet status' there.")
 
     (directory / "agent.yaml").write_text(yaml.safe_dump(
         agent.manifest.model_dump(exclude_none=False), sort_keys=False))
