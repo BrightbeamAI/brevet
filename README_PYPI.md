@@ -11,9 +11,9 @@
 auditable, and revocable.</b></p>
 
 <p align="center">
+  <a href="https://pypi.org/project/brevet/"><img src="https://img.shields.io/pypi/v/brevet.svg" alt="PyPI version"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <a href="https://github.com/BrightbeamAI/brevet/blob/v0.4.0/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0"></a>
-  <a href="https://github.com/BrightbeamAI/brevet/actions/workflows/ci.yml"><img src="https://github.com/BrightbeamAI/brevet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/BrightbeamAI/chap"><img src="https://img.shields.io/badge/CHAP-compatible-EA4700.svg" alt="CHAP-compatible"></a>
 </p>
 
