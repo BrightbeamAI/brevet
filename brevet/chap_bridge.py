@@ -183,6 +183,33 @@ class CHAPDispatcher:
         return sent, len(remaining)
 
 
+class _LazyDispatcher:
+    """A dispatcher made on the first envelope it mirrors, so a command that
+    only reads the chain never opens a coordinator."""
+
+    def __init__(self, ledger_ref: str, workdir: Path):
+        self._ref, self._workdir = ledger_ref, workdir
+        self._real: Any = None
+        self._made = False
+
+    def dispatch(self, envelope: dict[str, Any]) -> bool:
+        if not self._made:
+            self._real, self._made = dispatcher_from_ref(self._ref, self._workdir), True
+        return bool(self._real and self._real.dispatch(envelope))
+
+
+def mirror_for(workdir: Path, manifest: Any = None) -> Any | None:
+    """The CHAP mirror a workspace's manifest declares
+    (``runtime_safety.evidence.ledger: chap:...``), made only when an
+    envelope is written; None for a file ledger."""
+    if manifest is None:
+        from brevet.anchor import _manifest_beside
+        manifest = _manifest_beside(Path(workdir))
+    evidence = ((getattr(manifest, "runtime_safety", None) or {}).get("evidence") or {})
+    ref = str(evidence.get("ledger") or "file:./ledger.jsonl")
+    return _LazyDispatcher(ref, Path(workdir)) if ref.startswith("chap:") else None
+
+
 def dispatcher_from_ref(ledger_ref: str, workdir: Path) -> Any | None:
     """``file:...`` -> None. ``chap:<workspace>@<url>`` (or $BREVET_CHAP_URL)
     -> remote dispatcher. ``chap:<workspace>`` with the official

@@ -3,8 +3,9 @@
 Brevet is a change-control runtime for what AI agents learn. In this
 setup, **Claude itself is the governed agent**: drafts Claude produces
 and the finals the user ships become evidence, recurring corrections
-become candidate capabilities, and only capabilities a named human
-promoted and a signed release shipped may influence future behaviour.
+become candidate capabilities, and only capabilities a named human or
+mission group promoted and a signed release shipped may influence future
+behaviour.
 Doctrine: agents propose deltas; evidence tests them; humans promote
 them; the runtime only ever executes signed versions.
 
@@ -87,13 +88,18 @@ double counting would inflate recurrence and manufacture candidates.
   attested delta; production needs measured runs.
 - `brevet_rollback`: only when the user asks to return to an earlier
   release, with their identity.
-- Signed approvals: if a dawn, release or recall tool returns
+- Signed approvals: if a dawn, release, rollback or recall tool returns
   `awaiting_signature`, nothing has changed. Show the user the summary and
   the `brevet approve` command to run in Terminal. Never ask for or handle
   their passphrase, and never say the decision is done until it is signed.
-- `brevet_recall`: when the user withdraws a rule or consent.
-- After any release or recall: `apply` then `check` if the folder is
-  mounted, and state what changed.
+- `brevet_recall`: when the user withdraws a rule. When someone withdraws
+  consent, give the user the Terminal command, which stops learning from
+  them and recalls what was built on their overrides:
+  `~/.brevet/venv/bin/brevet consent withdraw --participant human:<email>
+  --issued-by human:<email> --workdir ~/brevet-cowork/.brevet`.
+- After any release or recall: run `tools/brevet_cowork.py apply` then
+  `tools/brevet_cowork.py check` if the folder is mounted, and state what
+  changed.
 
 ## Prohibitions
 

@@ -318,7 +318,7 @@
         <p>npm writes a lockfile so the same code installs the same way twice, and
         every package has a name and a version. Brevet writes the same file for
         learned behaviour: every capability in a release, its content hash, and the
-        human who approved it.</p>
+        human or mission group that approved it.</p>
       </div>
       <div class="card reveal">
         <div class="map-row">
@@ -330,7 +330,8 @@
         <p>Pharma lets discovery be bold because approval is a separate act:
         candidates pass phased trials before anyone prescribes them. Brevet
         quarantines what the agent discovers the same way. A candidate earns
-        authority through human gates, and releases climb the channels.</p>
+        authority through human gates, and each release names the channel it
+        runs on, from shadow to production.</p>
       </div>
       <div class="card reveal">
         <div class="map-row">
@@ -354,8 +355,9 @@
         <p class="big">An aircraft flies only with the release signed.</p>
         <p>Every modification is logged, signed, and traceable to a named engineer;
                 otherwise the plane stays in the hangar. Outside the shadow channel, a
-        wrapped agent runs only its latest signed release, with the harness that
-        release locked, and what it knows is a recorded human decision. No valid
+        wrapped agent runs only its latest signed release, stops when a file or
+        component of its harness changes without a release, and what it knows is
+        a recorded human decision. No valid
         signature, no flight.</p>
       </div>
     </div>
@@ -411,7 +413,8 @@
     <div class="grid g3">
       <div class="card reveal"><h3>Pharma and med-device quality</h3><p>Deviation triage, batch record review,
         CAPA drafting. Learned severity rules must be approved, versioned, and recallable.
-        Change control is already the law here; Brevet speaks it natively.</p></div>
+        Change control is already how this work is run, and Brevet applies it to
+        what the agent learns.</p></div>
       <div class="card reveal"><h3>Financial operations</h3><p>Alert triage, case summaries, exception
         handling. When the agent learns that a pattern is benign, that is a policy change.
         Someone must own it, and the auditor must find them.</p></div>
@@ -422,8 +425,8 @@
         quality inspection. Tacit knowledge like &ldquo;vibration during cleaning in place (CIP) means seal wear&rdquo;
         becomes an explicit, conditional, revocable capability.</p></div>
       <div class="card reveal"><h3>MSPs and support engineering</h3><p>Ticket triage and runbook agents that
-        learn each client&rsquo;s quirks. The lockfile tells you exactly what each deployment
-        has learned, per client, per version.</p></div>
+        learn each client&rsquo;s quirks. With one workspace per client, the lockfile tells
+        you exactly what each deployment has learned, version by version.</p></div>
       <div class="card reveal"><h3>Any team that fears week two</h3><p>Not regulated? The questions still bite
         the first time a learned behaviour misfires in production and nobody can say when
         it appeared or how to unlearn it.</p></div>
@@ -452,13 +455,13 @@
     <p class="sub reveal" style="margin-top:38px">
             Research papers score self-evolving agents on one axis: did the pass rate go up?
       Anyone who owns one in production needs four, and Brevet&rsquo;s records are designed to
-      answer all of them. BENCHMARK.md specifies how a benchmark would score them; no
-      implementation of it exists yet.
+      answer all of them. BENCHMARK.md specifies the benchmark, and
+      <code class="inline">brevet benchmark</code> scores any Brevet workspace on all four axes.
     </p>
     <div class="axes">
       <div class="axis reveal"><h3>Improvement</h3><small>the held-out pass-rate change, the axis research reports</small></div>
       <div class="axis reveal"><h3>Regression discipline</h3><small>how often a change made some tasks worse and still shipped</small></div>
-      <div class="axis reveal"><h3>Lineage</h3><small>whether every change traces to its capability, evidence, eval run and approver</small></div>
+      <div class="axis reveal"><h3>Lineage completeness</h3><small>whether every change traces to its capability, evidence, eval run and approver</small></div>
       <div class="axis reveal"><h3>Recall compliance</h3><small>how quickly and completely a recalled capability stops being used</small></div>
     </div>
   </div>
@@ -471,7 +474,7 @@
     <h2 class="reveal">Three lines. Your framework stays in charge.</h2>
         <p class="sub reveal"><code class="inline">brevet.wrap()</code> detects the common agent
     frameworks, writes a starter manifest (<code class="inline">agent.yaml</code>), and starts
-    the evidence chain. It never modifies the wrapped object. Execution stays in your framework; Brevet keeps the manifest, evidence and releases around it.</p>
+    the evidence chain. Execution stays in your framework; Brevet serves the agent its governed rules, routes its tool calls through the tool broker and keeps the manifest, evidence and releases around it.</p>
 
     <div class="tabs" id="tabs"></div>
     <div id="panes"></div>
@@ -499,7 +502,7 @@
         agent: prompts, tools, loop policy, memory bindings, safety rails. Brevet stores the
         harness as data (<code class="inline">agent.yaml</code>), versioned and signed.</p></div>
       <div class="card reveal"><h3>difference signal (&Delta; = enacted &#8854; specified)</h3><p>What actually
-        happened (traces and overrides) compared with what the signed harness specified.
+        happened (the experts&rsquo; overrides) compared with what the signed harness specified.
         The &#8854; is a structured comparison of matched episodes, not subtraction.
         Every candidate is mined from this difference.</p></div>
               <div class="card reveal"><h3>dream cycle</h3><p>The offline mining run. It examines the
@@ -530,8 +533,8 @@
         higher evidence bar, and cannot be promoted under a machine identity. Exogenous: a human carried it in
         or confirmed it. Human judgment grounds and verifies machine inference.</p></div>
       <div class="card reveal"><h3>conservative gate</h3><p>The release rule:
-        <code class="inline">&Delta;in &ge; 0 &and; &Delta;out &ge; 0 &and; max &gt; 0</code>.
-                checked on the deltas of the eval runs the release is bound to. A change may not
+        <code class="inline">&Delta;in &ge; 0 &and; &Delta;out &ge; 0 &and; max &gt; 0</code>,
+        checked on the release&rsquo;s deltas, from the eval runs it is bound to or attested by its approver. A change may not
         trade one half of the eval cases against the other, even if the total improves.</p></div>
               <div class="card reveal"><h3>capabilities.lock</h3><p>The bill of materials:
         every approved capability with its content hash, authority layer, approver, and evidence
@@ -610,7 +613,7 @@ const steps = [
                   known seal-wear precursor; treat as major."</span>,
     <span class="fn">"tags"</span>: [<span class="st">"vibration-cip-underrated"</span>] } }`},
  {tag:"DREAM", title:"Offline, the dream cycle mines", story:
-  `Overnight, never mid-task, the dream cycle looks for <b>overrides that keep recurring</b>: places where human decisions diverged from what the harness specified. Four overrides share one failure signature, so it proposes <b>one candidate rule</b> and compiles the four overrides into <b>eval cases</b>. Nothing it produces has authority until a human promotes it at dawn, and the next night it adds only what is new.`,
+  `Overnight, never mid-task, the dream cycle looks for <b>overrides that keep recurring</b>: places where human decisions diverged from what the harness specified. Four overrides share one failure signature, so it proposes <b>one candidate rule</b> and compiles the four overrides into <b>eval cases</b>. Nothing it produces has authority until a human or mission group promotes it at dawn, and the next night it adds only what is new.`,
   analogy:"The molecule, not the medicine: discovery is allowed to be bold precisely because approval is a separate act.",
   code:`{ <span class="fn">"capability_id"</span>: <span class="st">"cap_717feb4bc493"</span>,
   <span class="fn">"kind"</span>: <span class="st">"prompt_rule"</span>,
@@ -633,7 +636,8 @@ const steps = [
   code:`<span class="kw">&gt;&gt;&gt;</span> agent.dawn(decide=(cap_id, <span class="st">"promote"</span>),
 ...            approver=<span class="st">"dream:nightcycle"</span>)
 <span class="hl">PermissionError: the dawn approver must be a human or a
-mission group, written human:&lt;who&gt; or mission_group:&lt;name&gt;</span>
+mission group, written human:&lt;who&gt; or mission_group:&lt;name&gt;; got
+'dream:nightcycle'. ...</span>
 
 <span class="kw">&gt;&gt;&gt;</span> cap = agent.dawn(decide=(cap_id, <span class="st">"promote"</span>),
 ...                  approver=<span class="st">"mission_group:quality_team"</span>)
@@ -656,7 +660,7 @@ mission group, written human:&lt;who&gt; or mission_group:&lt;name&gt;</span>
 { <span class="fn">"delta_held_in"</span>: <span class="nm">1.0</span>, <span class="fn">"delta_held_out"</span>: <span class="nm">1.0</span>,
   <span class="fn">"passed_gate"</span>: <span class="kw">True</span> }   <span class="cm"># conservative gate: pass</span>`},
  {tag:"RELEASE", title:"v0.2.0: signed and locked", story:
-  `The release resolves every promoted capability into <b>capabilities.lock</b>, the bill of materials, beside a digest of each part of the harness, and signs the manifest with Ed25519; the signature covers the lock&rsquo;s digest. Releases move through the <i>shadow, trial and production</i> channels, trial and production only through the conservative gate, and each release records the version to roll back to.`,
+  `The release resolves every promoted capability into <b>capabilities.lock</b>, the bill of materials, beside a digest of each part of the harness, and signs the manifest with Ed25519; the signature covers the lock&rsquo;s digest. Each release names its channel, <i>shadow, trial or production</i>; trial and production releases must pass the conservative gate, production needs measured eval runs, and each release records the version to roll back to.`,
   analogy:"The aircraft leaves the hangar only with the maintenance release signed, and the log says who signed it.",
   code:`<span class="kw">&gt;&gt;&gt;</span> agent.release(to_version=<span class="st">"0.2.0"</span>, channel=<span class="st">"trial"</span>,
 ...     approver=<span class="st">"mission_group:quality_team"</span>,

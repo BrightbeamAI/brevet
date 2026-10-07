@@ -4,8 +4,9 @@ The five JSON Schemas in `schemas/` define Brevet's records. This document
 states the rules a conforming deployment must enforce around them, using
 MUST and SHOULD in their usual standards sense. For plain-language
 definitions, see [GLOSSARY.md](GLOSSARY.md). This repository is the
-reference implementation; [ABOUT.md](ABOUT.md#running-in-production) shows how
-each control is switched on.
+reference implementation; ABOUT.md shows how each control is switched on, in
+[Signed approvals](ABOUT.md#signed-approvals) and
+[Running in production](ABOUT.md#running-in-production).
 
 ## 1. Objects
 
@@ -28,10 +29,10 @@ only the binding.
 
 ## 2. Authority invariants (MUST)
 
-1. **Evidence never acts.** A capability with `authority_layer=evidence` MUST
+1. **I1. Evidence never acts.** A capability with `authority_layer=evidence` MUST
    NOT appear in a lockfile, influence retrieval, or shape behaviour. It
    exists for review.
-2. **No self-authorisation.** Promotion (any transition raising
+2. **I2. No self-authorisation.** Promotion (any transition raising
    `authority_layer`) MUST be attributable to a human or mission-group
    identity. Implementations MUST reject approver identities in the
    `agent:*`, `model:*`, `dream:*` namespaces. A deployment that claims
@@ -52,17 +53,17 @@ only the binding.
    trusts, such as an OpenSSH allowed-signers file or a code host's published
    keys; a registration whose key the configured source does not list MUST be
    refused.
-3. **Endogenous quarantine.** A capability with `source_pathway=endogenous`
+3. **I3. Endogenous quarantine.** A capability with `source_pathway=endogenous`
    MUST enter at the Evidence layer strictly as a hypothesis and MUST NOT be
    promoted by any automated step of the process that proposed it. (Mirror of
    the Metis rule that endogenous fragments never self-promote.) Endogenous
    candidates SHOULD be held to a higher evidence bar than exogenous
    material, and reviewers SHOULD use exogenous human judgments to ground
    and verify endogenous inferences.
-4. **Controlled means change control.** Promotion to `controlled` MUST carry
+4. **I4. Controlled means change control.** Promotion to `controlled` MUST carry
    `mission_group_reviewed_by` provenance and SHOULD reference formal change
    control. Only `controlled` capabilities may shape act-class tool behaviour.
-5. **Rejection is not deletion.** Rejected/held capabilities remain stored as
+5. **I5. Rejection is not deletion.** Rejected/held capabilities remain stored as
    governed evidence with their lineage intact.
 
 ## 3. Conditions-first retrieval (MUST)
@@ -184,9 +185,10 @@ All envelopes (`brevet.task`, `brevet.artefact`, `brevet.override`,
 `brevet.release`, `brevet.recall`, `brevet.eval_run`, `brevet.approver`,
 `brevet.drift`, `brevet.recall_ack`, `brevet.tool_call`, `brevet.consent`,
 `brevet.gate`) are append-only and hash-linked
-(`sha256(canonical(envelope) || prev_hash)`), independently replayable, and
-CHAP-compatible: when a live CHAP coordinator is configured, envelopes are
-mirrored to it; the local chain remains the offline-verifiable copy. Each
+(`sha256(canonical(envelope) ‖ prev_hash)`), independently replayable, and
+CHAP-compatible: when a live CHAP coordinator is configured, every envelope
+the workspace writes SHOULD be mirrored to it (evidence imported from CHAP is
+not sent back); the local chain remains the offline-verifiable copy. Each
 envelope SHOULD name the runtime that wrote it (`runtime`); approval records
 older than a chain's first such envelope replay under the rules of the
 release that wrote them, and every later record MUST meet the current rules.

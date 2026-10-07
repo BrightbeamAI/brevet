@@ -1,7 +1,9 @@
 """Brevet as an MCP server.
 
 Any MCP client (Claude Code, Claude Desktop, Cursor, an agent of your own)
-gets the full lifecycle as tools. Start with:
+gets Brevet as tools: capture, the dream cycle, dawn decisions, releases,
+rollback, recall, acknowledgements, anchoring and verification. Evals run
+from Python, and their runs are bound to releases made here. Start with:
 
     brevet mcp --workdir .brevet --manifest-path agent.yaml
 
@@ -11,8 +13,8 @@ agent.yaml and .brevet/ (clients may start servers from any directory):
     {"mcpServers": {"brevet": {"command": "brevet", "args": ["mcp"],
                                "env": {"BREVET_HOME": "/path/to/workspace"}}}}
 
-Authority invariants hold over MCP as in code: promotion, release and
-recall tools require a ``human:`` or ``mission_group:`` identity and refuse
+Authority invariants hold over MCP as in code: promotion, release, rollback
+and recall tools require a ``human:`` or ``mission_group:`` identity and refuse
 every other namespace, including agent:, model: and dream:. Signed approvals
 (below) make the identity provable: an agent that can call every tool still
 cannot sign.
@@ -115,7 +117,7 @@ _BASE_INSTRUCTIONS = (
     "them at once, even if they were served earlier in the session, and call "
     "brevet_acknowledge with their recall ids; confirm the recalls it lists under "
     "recalls_to_confirm the same way. "
-    "Run dawn decisions, releases and recalls only on the user's explicit "
+    "Run dawn decisions, releases, rollbacks and recalls only on the user's explicit "
     "instruction, with the identity the user gives. When the workspace requires "
     "signed approvals, those tools return a request instead of acting: show the "
     "user the summary and the command, which they run in a terminal to sign. "
@@ -244,7 +246,10 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
                       participant: str = "") -> str:
         """Record one completed task as evidence: the agent's draft and the
         expert's final (the version actually used). An empty final, or one
-        identical to the draft, means the draft was accepted as it was. The
+        identical to the draft, means the draft was accepted as it was.
+        family is the task family, the kind of work (for example
+        weekly_summary); tags are comma-separated, and the first one names
+        the problem, so recurring corrections should reuse it. The
         participant is the human who made the correction and defaults to the
         workspace owner named in the manifest. Recording creates evidence
         only; it grants no authority."""
@@ -301,8 +306,8 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
     @_tool
     def brevet_status() -> str:
         """Agent status: version, channel, active capabilities by authority
-        layer, recalled capabilities, the dawn queue and evidence-chain
-        integrity."""
+        layer, recalled capabilities, the dawn queue, signed approvals, the
+        harness, anchors, open recalls and evidence-chain integrity."""
         store, ledger = _store(), _ledger()
         by_layer: dict[str, int] = {}
         recalled = 0
@@ -431,8 +436,9 @@ def build_server(workdir: str | None = None, manifest_path: str | None = None) -
     def brevet_dream() -> str:
         """Run the dream cycle: group recurring overrides into Evidence-layer
         candidate capabilities and compile eval cases from them. Only what is
-        new is added, and only from the overrides of participants who
-        consented. Candidates have no authority until a human promotes them."""
+        new is added, from the overrides the manifest's consent scope allows.
+        Candidates have no authority until a human or mission group promotes
+        them."""
         ledger = _ledger()
         return json.dumps(dream_cycle(ledger, _store(),
                                       consent=consent_allowed(_manifest(), ledger)))

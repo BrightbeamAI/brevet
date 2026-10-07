@@ -111,7 +111,7 @@ for cap in candidates:
 
 # Evals: replay the overrides as tests, on the current release and on the next.
 before = agent.evaluate(baseline=True)
-#    ...an agent that takes a context argument now receives the promoted rule...
+#    ...the agent now receives the promoted rule with each task...
 after = agent.evaluate()
 
 # Release: bound to those two runs, and refused unless the conservative gate passes.
@@ -138,18 +138,20 @@ brevet playground            # step through the loop in your browser
 ```
 
 Everything runs on your own machine, with no model or network connection. To
-run the example above, clone the repository and run
+run the example above, install Brevet, clone the repository and run
 `python examples/pump_vibration.py`. For a guided, clickable tour, open
-[docs/demo.html](docs/demo.html) in a browser.
+`docs/demo.html` from your clone in a browser.
 
 ## Works with the agent you already have
 
 `brevet.wrap()` recognises agents built with LangGraph, the Claude Agent SDK,
 DeepAgents, AutoGen, LlamaIndex, Pydantic AI, the Google Agent Development Kit,
 CrewAI and the OpenAI Agents SDK, and it accepts any Python function. Your
-framework keeps running the agent; Brevet serves it its governed rules and
-checks each declared tool call. `uvx brevet mcp` offers the whole loop to any
-MCP client ([ABOUT.md](ABOUT.md#the-mcp-server) shows the setup), and
+framework keeps running the agent; Brevet serves it its governed rules with
+each task and, wherever the framework exposes its tools, checks each tool call
+against the tiers its release declares. `uvx brevet mcp` offers capture,
+review, release and recall to any MCP client
+([ABOUT.md](ABOUT.md#the-mcp-server) shows the setup), and
 [examples/claude-cowork](examples/claude-cowork) uses it to govern what Claude
 itself learns.
 
@@ -161,8 +163,9 @@ runs behind their numbers, and any release can be rolled back. A recalled rule
 is withheld from running agents, which confirm it on the record. A tool broker
 checks the agent's tool calls against the tiers the manifest grants, and the
 evidence chain is anchored outside the workspace, so even a rewritten chain is
-caught.
-[ABOUT.md](ABOUT.md#running-in-production) shows how to switch each one on.
+caught. ABOUT.md shows how to switch each one on: see
+[Signed approvals](ABOUT.md#signed-approvals) and
+[Running in production](ABOUT.md#running-in-production).
 
 ## Learn more
 
@@ -176,9 +179,9 @@ caught.
 
 ## Citation
 
-If you use Brevet in research, please cite the paper *Brevet: Change Control
-for What Self-Evolving AI Agents Learn* (Shahid, Suttie and Black, 2026).
-[CITATION.cff](CITATION.cff) gives the software citation.
+If you use Brevet in research, please cite it as [CITATION.cff](CITATION.cff)
+describes. The accompanying paper is *Brevet: Change Control for What
+Self-Evolving AI Agents Learn* (Shahid, Suttie and Black, 2026).
 
 ## License
 

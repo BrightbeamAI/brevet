@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Every wrapped agent receives its governed rules by default: a function
+  that takes a context argument finds them in the context, and every other
+  agent, framework agents included, receives them before the task text.
+  `runtime_safety.serve_rules` still overrides this.
+- With `runtime_safety.evidence.ledger: chap:...`, envelopes written from the
+  command line and by `brevet approve` are mirrored to CHAP as well.
+- `brevet dream` sets a model family on candidates only when
+  `--model-family` names one.
+- The Claude Cowork example's `release` defaults to the shadow channel and
+  asks for deltas on trial and production; its weekly digest relays only new
+  CHAP audit entries.
+
+### Fixed
+
+- A CHAP sink holding the same audit entries twice is read once, so a
+  repeated relay neither fails the chain check nor files an override under
+  the wrong task.
+- The source distribution includes the files its tests read.
+- Documentation, schema descriptions and command help corrected throughout.
+
 ## 0.4.0 (2026-10-07)
 
 The whole harness under change control, and the controls a production
@@ -31,9 +55,9 @@ verified approvers.
   kept in the user's configuration, so a replaced workspace is caught under
   any agent name. A chain cut short, rewritten or replaced is refused by
   wrapped agents (which also replay the chain whenever it changed) and
-  `brevet_active`, and reported by `brevet verify`, which also show
-  governing steps still waiting to be anchored. `brevet anchor` and
-  `brevet_anchor` anchor on demand.
+  `brevet_active`, and reported by `brevet verify`; both `brevet verify` and
+  `brevet_active` show governing steps still waiting to be anchored.
+  `brevet anchor` and `brevet_anchor` anchor on demand.
 - **Releases bound to their evals.** Every eval run records what it
   evaluated (cases, scorer, repeats, capabilities, harness and manifest) and
   each case's result with the tasks behind it; a release re-checks those

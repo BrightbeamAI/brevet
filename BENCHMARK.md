@@ -3,9 +3,9 @@
 Research on self-improving agents mostly measures one thing: whether the
 agent got better. Teams that run agents in production need four
 properties, and improvement is only the first. This document specifies a
-benchmark that scores all four side by side, as the paper sets out.
-`brevet benchmark` computes the profile below for any Brevet workspace; the
-data releases and the comparison across systems are the benchmark's design.
+benchmark that scores all four side by side. `brevet benchmark` computes
+the profile below for any Brevet workspace; the sections that follow define
+the shared data and the comparison across systems.
 
 ## What a submission is given
 
@@ -102,12 +102,12 @@ propagation one at a time, to show what each contributes.
 
 ## Data
 
-A first release could contain synthetic override corpora built from worked
-scenarios such as deviation triage, batch quality and shift handover,
-published in CHAP's envelope format. Each override should carry its
-rationale and the limits of where it applies, and the data should include
-disagreements between reviewers and corrections that were later reversed.
-Later releases could add consented, anonymised records from real operations.
+The benchmark's data are override corpora in CHAP's envelope format: synthetic
+corpora built from worked scenarios such as deviation triage, batch quality
+and shift handover, and consented, anonymised records from real operations.
+Each override carries its rationale and the limits of where it applies, and
+the data include disagreements between reviewers and corrections that were
+later reversed.
 
 ## What this benchmark is not
 

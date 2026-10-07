@@ -36,11 +36,12 @@
     },
     "approved_by": { "type": "string" },
     "approved_at": { "type": "string", "format": "date-time" },
-    "decision_ref": { "type": ["string", "null"], "description": "CHAP decide.approve envelope id." },
+    "decision_ref": { "type": ["string", "null"], "description": "Reserved for a reference to an external approval record." },
     "rollback_to": { "type": ["string", "null"], "description": "Version restored if this release is rolled back." },
     "rationale": { "type": ["string", "null"] },
     "signer_public_key": { "type": "string", "description": "Hex Ed25519 public key that signed this release, recorded on the evidence chain." },
     "approval": { "type": ["object", "null"], "description": "Approver signatures over the exact release, present once the workspace requires signed approvals." },
-    "restores": { "type": ["string", "null"], "description": "Set on a rollback: the earlier release whose manifest, harness and capabilities this release restores." }
+    "restores": { "type": ["string", "null"], "description": "Set on a rollback: the earlier release whose manifest, harness and capabilities this release restores." },
+    "set_aside": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Set on a rollback: harness files added since the restored release, moved aside in the workspace (never deleted)." }
   }
 }

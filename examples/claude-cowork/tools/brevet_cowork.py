@@ -2,9 +2,9 @@
 """Bridge between Claude (Desktop / Cowork) and a Brevet workspace.
 
 Treats the chat assistant as the governed agent: Claude drafts, the human
-ships a final, and this tool records the pair as Brevet evidence. Signed
-releases are then materialised into one governed rules file that future
-sessions load, and recalls remove them.
+ships a final, and this tool records the pair as Brevet evidence. Sessions
+take their governed rules from brevet_active; ``apply`` also writes the
+latest signed release to a readable rules file, and recalls remove them.
 
 Identities are read from the workspace's ``agent.yaml``
 (``identity_policy.owner`` and ``identity_policy.mission_group``), so this
@@ -105,6 +105,10 @@ def cmd_dawn(a) -> None:
 
 
 def cmd_release(a) -> None:
+    if a.channel != "shadow" and (a.delta_in is None or a.delta_out is None):
+        raise ValueError("a trial or production release needs --delta-in and --delta-out: "
+                         "the deltas you measured or attest; neither may be negative and "
+                         "at least one must be positive")
     rec = _agent(Path(a.root)).release(
         to_version=a.version, channel=a.channel, approver=a.approver,
         delta_in=a.delta_in, delta_out=a.delta_out, rationale=a.rationale)
@@ -186,7 +190,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--root", default=str(DEFAULT_ROOT),
-                   help="Brevet workspace root (default: this example's folder)")
+                   help="the workspace folder that holds agent.yaml and .brevet/ "
+                        "(default: the folder above tools/)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     r = sub.add_parser("record", help="log Claude draft + human final")
@@ -215,10 +220,12 @@ def main() -> None:
 
     rl = sub.add_parser("release", help="lock + sign next version")
     rl.add_argument("--version", required=True)
-    rl.add_argument("--channel", default="trial")
+    rl.add_argument("--channel", default="shadow", choices=["shadow", "trial", "production"])
     rl.add_argument("--approver", required=True)
-    rl.add_argument("--delta-in", type=float, default=0.0)
-    rl.add_argument("--delta-out", type=float, default=0.0)
+    rl.add_argument("--delta-in", type=float, default=None,
+                    help="held-in delta, measured or attested (trial and production)")
+    rl.add_argument("--delta-out", type=float, default=None,
+                    help="held-out delta, measured or attested (trial and production)")
     rl.add_argument("--rationale", default="")
     rl.set_defaults(fn=cmd_release)
 
@@ -235,7 +242,12 @@ def main() -> None:
     sub.add_parser("verify", help="replay the chain").set_defaults(fn=cmd_verify)
 
     a = p.parse_args()
-    a.fn(a)
+    try:
+        a.fn(a)
+    except (PermissionError, ValueError, KeyError, FileNotFoundError) as e:
+        print(f"error: {e.args[0] if isinstance(e, KeyError) and e.args else e}",
+              file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ def triage_agent(report: str) -> str:
 
 
 def triage_agent_v2(report: str) -> str:
-    """The agent after the team adds the promoted rule to its instructions."""
+    """A stand-in for an agent that follows the promoted rule."""
     if "vibration" in report and "cleaning" in report:
         return "severity: major"
     return "severity: minor"
@@ -103,8 +103,9 @@ def main() -> None:
           f"compiled with it to {promoted.authority_layer.value.capitalize()}.")
 
     # 4. Evals. Replay the overrides as tests, before and after the change.
-    #    In practice your agent loads the promoted rule into its instructions;
-    #    here we swap in a version of the agent that follows it.
+    #    The agent now receives the promoted rule with each task, before the
+    #    task text. This stand-in ignores what it is told, so we swap in a
+    #    version that follows the rule.
     before = agent.evaluate(baseline=True)
     agent.adapter.target = triage_agent_v2
     after = agent.evaluate()

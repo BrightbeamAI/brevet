@@ -23,7 +23,7 @@
           "conditions_digest": { "type": ["string", "null"], "description": "Hash of the applicability conditions at lock time; a rule whose conditions change after release is not served." },
           "approved_by": { "type": "string" },
           "approved_at": { "type": "string", "format": "date-time" },
-          "promotion_ref": { "type": ["string", "null"], "description": "CHAP decide.* envelope id for the promotion decision." },
+          "promotion_ref": { "type": ["string", "null"], "description": "Reserved for a reference to the promotion decision; releases match each entry to its promotion on the evidence chain." },
           "evidence_refs": { "type": "array", "items": { "type": "string" } },
           "revocation_status": { "type": "string", "default": "active" }
         }

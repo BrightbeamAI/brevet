@@ -1,8 +1,8 @@
 # Task families under Brevet governance in your Claude sessions.
 #
 # Capture is always on under your standing consent: at the end of any
-# task you correct or approve, Claude records the draft/final pair as
-# evidence here, without being asked. Families are the clustering key
+# task you correct or approve, Claude records the draft/final pair on
+# the workspace's evidence chain, without being asked. Families are the clustering key
 # for mining, so granularity matters: too broad and unrelated
 # corrections mix; too narrow and recurrence never reaches the
 # proposal threshold (3).

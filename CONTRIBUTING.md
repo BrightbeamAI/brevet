@@ -1,14 +1,15 @@
 # Contributing to Brevet
 
-Thanks for your interest. Brevet is early and deliberately small: five JSON Schemas define the records, [SPEC.md](SPEC.md) states the
-rules, and one Python runtime implements them.
+Thanks for your interest. Brevet's contract is compact: five JSON Schemas
+define the records, [SPEC.md](SPEC.md) states the rules, and one Python
+runtime implements them.
 
 ## Setup
 
 ```console
 $ git clone https://github.com/BrightbeamAI/brevet && cd brevet
 $ pip install -e ".[dev]"
-$ pytest          # runs offline (the CHAP mirror test needs the [chap] extra)
+$ pytest          # runs offline
 $ ruff check .
 $ brevet demo     # the whole loop once, on example data
 ```
@@ -21,8 +22,9 @@ $ brevet demo     # the whole loop once, on example data
 - **Schema/spec issues.** If the schemas or `SPEC.md` under- or
   over-constrain something you hit in practice, open an issue with the
   concrete case.
-- **Benchmark work.** `BENCHMARK.md` is a design specification;
-  implementations of its four scored axes are welcome.
+- **Benchmark work.** `brevet benchmark` scores a workspace on the four
+  axes of `BENCHMARK.md`; datasets, baselines and comparisons across
+  systems are welcome.
 
 ## Ground rules
 
@@ -44,8 +46,8 @@ $ brevet demo     # the whole loop once, on example data
 `ruff check .` must pass (line length 100). Prefer small modules whose
 docstring says, in plain words, what the module is for as well as how it
 works. User-facing text (CLI messages, demo output, generated rule text)
-should use the terms in [GLOSSARY.md](GLOSSARY.md), the same ones the paper
-uses, with a plain explanation wherever a newcomer meets a term first. The diagrams
+should use the terms in [GLOSSARY.md](GLOSSARY.md), with a plain explanation
+wherever a newcomer meets a term first. The diagrams
 in `docs/assets/` are generated: edit `scripts/make_diagrams.py` and rerun it
 rather than editing the SVG files by hand; the run also refreshes the copies
 embedded in `docs/demo.html`.
@@ -53,7 +55,9 @@ embedded in `docs/demo.html`.
 ## Releasing
 
 1. Set the new version in `pyproject.toml`, `brevet/__init__.py`,
-   `server.json` (twice) and `CITATION.cff`, and date its CHANGELOG entry.
+   `server.json` (twice) and `CITATION.cff` (with `date-released`), date its
+   CHANGELOG entry, and update the supported versions in `SECURITY.md` and
+   the draft number in `SPEC.md`'s title when they change.
 2. Run `python scripts/make_pypi_readme.py`, then `pytest`, which checks that
    the generated files are current.
 3. Commit, tag `v<version>` and push both. Push the tag before uploading: the

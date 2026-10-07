@@ -1,3 +1,7 @@
-include LICENSE README.md README_PYPI.md ABOUT.md GLOSSARY.md SPEC.md BENCHMARK.md CHANGELOG.md CITATION.cff SECURITY.md
+include LICENSE README.md README_PYPI.md ABOUT.md GLOSSARY.md SPEC.md BENCHMARK.md CHANGELOG.md CITATION.cff SECURITY.md CONTRIBUTING.md server.json
 recursive-include schemas *.json
 recursive-include tests *.py
+recursive-include scripts *.py
+recursive-include docs *.html *.svg
+recursive-include examples *.py *.md *.sh *.json *.yaml
+global-exclude __pycache__ *.py[cod]

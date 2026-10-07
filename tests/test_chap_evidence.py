@@ -232,3 +232,13 @@ def test_missing_store_path_is_an_error_not_an_empty_store(tmp_path):
     with pytest.raises(FileNotFoundError):
         ingest(str(tmp_path / "typo.db"), workdir=tmp_path / ".brevet", workspace=WS)
     assert not (tmp_path / "typo.db").exists()
+
+
+def test_a_sink_appended_to_twice_is_read_once(tmp_path):
+    chain = _chain({"method": "decide.override",
+                    "params": {"diff": [], "rationale": "r", "tags": ["tone-formal"]}})
+    sink = _write_sink(tmp_path, chain + chain)  # the whole log relayed a second time
+    summary = ingest(str(sink), workdir=tmp_path / ".brevet")
+    assert summary["chain"] == "structural" and summary["overrides"] == 1
+    ov = load_overrides(Ledger(tmp_path / ".brevet" / "ledger.jsonl"))[0]
+    assert ov.task_family == "write_email"

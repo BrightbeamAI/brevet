@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://brightbeam.ai/schemas/brevet/recall_notice.schema.json",
   "title": "RecallNotice",
-  "description": "The un-learning primitive. A recall marks one capability revoked, identifies every release whose lockfile contains it, and drives affected agents to a last-good version. The advisory format is deliberately CVE-like: learned capability needs the same logistics software vulnerabilities got.",
+  "description": "The un-learning primitive. A recall withdraws one capability, flags every release whose lockfile contains it, and records the action those releases should take (quarantine, rollback or re_review); a rollback itself is a separate signed release.",
   "type": "object",
   "required": ["recall_id", "capability_id", "reason", "severity", "issued_by", "action"],
   "properties": {
@@ -31,7 +31,7 @@
         }
       }
     },
-    "control_refs": { "type": "array", "items": { "type": "string" }, "description": "CHAP control.supersede / control.rollback envelope ids proving the recall executed." },
+    "control_refs": { "type": "array", "items": { "type": "string" }, "description": "Reserved for references to the actions that carried the recall out." },
     "completed_at": { "type": ["string", "null"], "format": "date-time" },
     "approval": { "type": ["object", "null"], "description": "Approver signatures over the exact recall, present once the workspace requires signed approvals." }
   }

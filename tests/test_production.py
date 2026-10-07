@@ -391,7 +391,8 @@ def test_an_agent_served_its_rules_withholds_and_acknowledges_a_recall(tmp_path)
 
 
 def test_an_agent_brevet_cannot_serve_stops_until_a_release_leaves_it_out(tmp_path):
-    agent = _workspace(tmp_path, target=task_only)
+    agent = _workspace(tmp_path, target=task_only,
+                       extra={"runtime_safety": {"serve_rules": "none"}})
     rule = _learn(agent)
     agent.release(to_version="0.2.0", channel="trial", approver="human:qa@x",
                   delta_in=0.1, delta_out=0.0)
@@ -404,6 +405,25 @@ def test_an_agent_brevet_cannot_serve_stops_until_a_release_leaves_it_out(tmp_pa
     agent.run("on a release without it")
     ack = next(iter(agent.ledger.read("brevet.recall_ack")))["body"]
     assert "leaves it out" in ack["how"] and recall_status(agent.ledger)[0]["complete"]
+
+
+def test_an_agent_without_a_context_argument_gets_its_rules_in_the_prompt(tmp_path):
+    prompts = []
+
+    def model(task):
+        prompts.append(task)
+        return "severity: minor"
+
+    agent = _workspace(tmp_path, target=model)  # no serve_rules setting
+    rule = _learn(agent)
+    agent.release(to_version="0.2.0", channel="trial", approver="human:qa@x",
+                  delta_in=0.1, delta_out=0.0)
+    agent.run("pump 9 vibration", task_family="triage")
+    assert prompts[-1].startswith("Governed rules (Brevet release 0.2.0)")
+    agent.recall(rule, reason="sensor fault", issued_by="human:qa@x")
+    agent.run("pump 9 vibration", task_family="triage")  # served, so it runs and withholds
+    assert not prompts[-1].startswith("Governed rules")
+    assert recall_status(agent.ledger)[0]["complete"]
 
 
 def test_prompt_mode_puts_the_rules_before_the_task(tmp_path):

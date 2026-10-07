@@ -28,8 +28,10 @@ object; the CLI and the MCP server call the same functions.
 
 With each task the agent receives the governed rules of its release
 (``runtime_safety.serve_rules``): ``context`` passes them in the context
-dict to agents that take one, ``prompt`` puts them before the task text, and
-``none`` leaves serving to you. Declared tools go through the tool broker.
+dict, ``prompt`` puts them before the task text, and ``none`` leaves serving
+to you. Without a setting, a function that takes a context argument gets
+them in the context and every other agent before the task text. Declared
+tools go through the tool broker.
 """
 
 from __future__ import annotations
@@ -421,8 +423,13 @@ class BrevetAgent:
         return self._caps[1]
 
     def _serve_mode(self) -> str:
-        mode = (self.manifest.runtime_safety or {}).get("serve_rules", "context")
-        return mode if mode in SERVE_MODES else "context"
+        """How the governed rules reach the agent. Without a setting: in the
+        context, for a function that takes one, and before the task text for
+        every other agent."""
+        mode = (self.manifest.runtime_safety or {}).get("serve_rules")
+        if mode in SERVE_MODES:
+            return mode
+        return "context" if self.adapter.takes_context() else "prompt"
 
     def _rules_reach_agent(self) -> bool:
         mode = self._serve_mode()

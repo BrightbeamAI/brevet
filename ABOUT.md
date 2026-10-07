@@ -44,7 +44,7 @@ chain.
 | **Release** `release()` | Promoted capabilities ship in a signed release with its `capabilities.lock`. | a named human or mission group | `brevet.release` |
 | **Recall** `recall()` | A capability is withdrawn, and every release that shipped it is flagged. | a named human or mission group | `brevet.recall` |
 
-The names follow the loop's day-and-night rhythm, which the paper calls the
+The names follow the loop's day-and-night rhythm, which Brevet calls the
 circadian contract. Awake, the agent works under one signed version and does
 not change itself. While it sleeps, the dream cycle mines what the day's
 overrides imply. At dawn, people review what the night proposed, and only what
@@ -96,12 +96,18 @@ brevet approve req_7f3a9c2e41d0     # shows the request, asks for the passphrase
 - **Keys stay with people.** `brevet approver add` creates an Ed25519 key,
   encrypted with a passphrase, in `~/.config/brevet/approvers/` (or
   `BREVET_APPROVER_DIR`), outside every workspace. With `--ssh-key`, the
-  person's existing Ed25519 SSH key is the approver key instead.
+  person's existing Ed25519 SSH key is the approver key instead (a
+  passphrase-protected SSH key needs `pip install "brevet[ssh]"`).
+- **Release again once approvers exist.** From the first registration on,
+  agents outside the shadow channel run, and `brevet_active` serves, only
+  releases that carry approver signatures, so make a signed release right
+  after registering.
 - **Request, sign, apply.** Anyone may request a decision, an agent over MCP
   included; nothing changes until the people it needs sign it with
   `brevet approve`. The signed request is bound to the exact decision: the
-  capability's content hash for a promotion; the lock's digest and the
-  manifest for a release. A release whose promotions changed after signing
+  capability's content hash for a promotion; the lock's digest, the
+  manifest and the eval evidence for a release. A release whose promotions
+  changed after signing
   is refused, and a signed request can be applied only once.
 - **Mission groups sign through their members.** A decision taken as
   `mission_group:<name>` needs signatures from that group's members, one by
@@ -181,20 +187,24 @@ upgrade is recorded but does not stop the run unless `env: block` is set;
 recognise blocks. `agent.evaluate()` runs regardless, since evaluating a
 change is how it earns a release. With signed approvals, a release request
 carries the harness it was made with, and applying it is refused if the
-named files have changed since. `brevet harness` and the `brevet_harness`
-MCP tool show the bill of materials and any drift.
+named files have changed since. The `brevet_harness` MCP tool lists every
+component of the bill of materials and its drift; `brevet harness` reports
+the release's component count and any change to the named files.
 
 ## Running in production
 
 ### Rules served where the agent runs
 
 With each task, a wrapped agent receives the governed rules of its release,
-checked as `brevet_active` checks them (`runtime_safety.serve_rules`):
+checked as `brevet_active` checks them. By default a function that takes a
+context argument finds them in `context["brevet"]["rules"]`, and every other
+agent, framework agents included, receives them as a block before the task
+text. `runtime_safety.serve_rules` overrides that:
 
 ```yaml
 runtime_safety:
-  serve_rules: context   # context["brevet"]["rules"], for a function that takes a context
-                         # prompt: a block of rules before the task text, for any framework
+  serve_rules: prompt    # context: in context["brevet"]["rules"]
+                         # prompt: a block of rules before the task text
                          # none: you serve them yourself
 ```
 
@@ -255,8 +265,8 @@ until it matches.
 ### Recalls confirmed where agents run
 
 A recalled rule is withheld from the next task, and the agent's first task
-after the recall records a `brevet.recall_ack`. An agent that does not take
-its rules from Brevet cannot be shown to have stopped, so outside the shadow
+after the recall records a `brevet.recall_ack`. An agent set not to take
+its rules from Brevet (`serve_rules: none`) cannot be shown to have stopped, so outside the shadow
 channel it refuses to run until a release leaves the capability out. In an
 MCP session, `brevet_active` lists recalled rules, the assistant stops
 applying them and confirms with `brevet_acknowledge`; recalls that flagged an
@@ -282,7 +292,7 @@ bindings:
 
 Declaring any tool switches the broker on; an undeclared tool is then
 refused. `runtime_safety.loop.budgets` caps tool calls and tool errors per
-task. Refusals and every act or controlled_act call are recorded as
+task (`max_tool_calls`, `max_tool_errors`). Refusals and every act or controlled_act call are recorded as
 `brevet.tool_call` envelopes, with the person who granted the call. The
 broker reaches the tools of Claude Agent SDK, OpenAI Agents (agents used as
 tools included), LangChain and LangGraph (subgraphs included), Pydantic AI
@@ -328,7 +338,7 @@ are waiting.
 
 `runtime_safety.dream.consent_scope: consented_sources_only` limits the
 dream cycle to the overrides of the workspace owner and the identities listed
-under `consented`; `all_recorded` learns from every override.
+under `consented`; `all_recorded`, the default, learns from every override.
 `brevet consent withdraw --participant human:rev@site --issued-by
 human:qa@site` stops learning from a participant and recalls every capability
 built on their overrides.
@@ -379,13 +389,15 @@ example from the first override to the recall. Running it prints:
 - **Optional model assist.** `brevet dream --assist ollama` lets a local
   model word candidates more clearly. Its output is always a draft, every use
   is logged, and Brevet works fully without it.
-- **CHAP mirroring.** Set `ledger: chap:<workspace>` in `agent.yaml`, install
-  the extra with `pip install "brevet[chap]"`, and every evidence envelope is
-  also mirrored to a CHAP coordinator running alongside, with its own database
-  in the working directory. To use a coordinator on another machine, write
-  `ledger: chap:<workspace>@<url>`; envelopes queue in an outbox while the
-  connection is down. The local evidence chain remains the record of
-  reference.
+- **CHAP mirroring.** Set `runtime_safety.evidence.ledger: chap:<workspace>`
+  in `agent.yaml` and install the extra with `pip install "brevet[chap]"`.
+  Every envelope the workspace writes, from a wrapped agent, the MCP server
+  or the command line, is then also mirrored to a CHAP coordinator running
+  alongside, with its own database in the working directory. To use a
+  coordinator on another machine, write `chap:<workspace>@<url>` (or set
+  `BREVET_CHAP_URL`); envelopes queue in an outbox while the connection is
+  down. Evidence imported from CHAP is not sent back. The local evidence
+  chain remains the record of reference.
 
 ## Supported frameworks
 
@@ -490,14 +502,15 @@ on automatic capture with `BREVET_AUTO_CAPTURE=1` or
 | `brevet verify` | replays the evidence chain and checks it against its anchors |
 | `brevet anchor` | writes the chain's head to its anchors outside the workspace |
 | `brevet status` | shows the version, capabilities by layer and chain health |
-| `brevet harness` | shows the harness bill of materials and any drift since the release |
+| `brevet harness` | shows how many harness components the release locks and any change to the named files |
 | `brevet benchmark` | scores the lineage on the four governed-adaptation axes |
 | `brevet consent withdraw` | stops learning from a participant and recalls what was built on their overrides |
-| `brevet hook` | checks a Claude Code tool call against the tool tiers (PreToolUse hook) |
+| `brevet hook` | checks a Claude Code tool call against the tool tiers (PreToolUse and PostToolUse hook) |
 | `brevet chap-ingest` | imports CHAP review verdicts as overrides |
 | `brevet mcp` | serves the loop to an MCP client |
 | `brevet approver` | registers approvers, revokes them and sets mission-group thresholds |
 | `brevet approve` | lists the requests waiting for signatures, or signs them |
+| `brevet version` | prints the installed version |
 
 ## Governing what Claude itself learns
 
@@ -585,6 +598,7 @@ brevet/
 │   └── assets/               the diagrams, in light and dark versions
 ├── scripts/
 │   ├── make_diagrams.py      regenerates the diagrams
+│   ├── embed_demo_assets.py  refreshes the diagrams embedded in docs/demo.html
 │   └── make_pypi_readme.py   writes README_PYPI.md for PyPI
 ├── tests/                    the test suite; runs offline
 ├── server.json               the MCP Registry entry
@@ -607,6 +621,7 @@ brevet/
 ├── approvals.jsonl           decisions waiting for approver signatures
 ├── releases/<version>.json   what each release shipped: manifest, lock, file digests
 ├── objects/                  the content of released harness files, stored by digest
+├── set-aside/                files a rollback moved out of the way, never deleted
 ├── anchor_outbox.jsonl       chain heads waiting to reach an anchor
 ├── chap_cursor.json          how far each CHAP source has been imported
 ├── chap.db                   an embedded CHAP coordinator's store, if used
@@ -622,8 +637,8 @@ theirs in `~/.config/brevet/approvers/`.
 ## Evidence envelopes
 
 Every envelope is appended, never edited, and hash-linked to the one before
-it: `chain_hash = sha256(encode(envelope) ‖ prev_hash)`. Each names the
-runtime that wrote it (`"runtime": "brevet/0.4.0"`), so replay applies to
+it: `chain_hash = sha256(canonical(envelope) ‖ prev_hash)`. Each names the
+runtime that wrote it (`"runtime": "brevet/<version>"`), so replay applies to
 every approval record the rules it was written under. Appends take a file
 lock, so several processes can share one chain.
 

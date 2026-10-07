@@ -16,10 +16,10 @@ normal conversation are the only input it needs.
 |---|---|
 | Work | Claude drafts in your chats, exactly as before. |
 | Override | When you change Claude's draft and use your own version, Claude records the pair (its first draft and your final) as an override, with your one-line reason and a tag, without being asked. |
-| Dream | When you ask, overrides that recur (three or more with the same tag and task family) become candidate rules. Candidates have no authority. |
+| Dream | When you ask, overrides that recur (three or more with the same task family, kind and first tag) become candidate rules. Candidates have no authority. |
 | Dawn | You promote, hold or reject each candidate in plain chat. Your identity is recorded, and approvals under machine identities are rejected. |
-| Evals | Trial releases need the conservative gate on the deltas you attest; neither half of the eval cases may get worse. Production releases need measured eval runs, unless `agent.yaml` allows attestation. |
-| Release | Promoted rules go into a signed release with its `capabilities.lock`. Sessions fetch them with `brevet_active`, which checks the chain and its anchors, the lock, the signature and each rule before serving it. `brevet_rollback` returns to any earlier release. |
+| Evals | Trial releases need the conservative gate on the deltas you attest: neither half of the eval cases may get worse, and at least one must improve. Production releases need measured eval runs, unless `agent.yaml` allows attestation. |
+| Release | Promoted rules go into a signed release with its `capabilities.lock`. Sessions fetch them with `brevet_active`, which checks the chain and its anchors, the lock, the signature and each rule before serving it. `brevet_rollback` returns to an earlier archived release (every release from Brevet 0.4.0 on), on its channel or a lower one. |
 | Recall | One command recalls a rule. `brevet_active` lists it as recalled, Claude stops applying it at once and confirms with `brevet_acknowledge`, and later releases leave it out. |
 | Verify | Any session can replay the evidence chain and check it against its anchors, so edits, truncation or a replaced history are caught. |
 
@@ -51,8 +51,8 @@ there is no file to open, so copy its records across: `chap_audit_read`
 returns entries in the coordinator's own format; append them unchanged to
 `<workspace>/chap-sink/audit-<workspace_id>.jsonl`, and ingest that
 directory. The scheduled digest in `digest/dawn-digest.md` does exactly
-this, skips cleanly when there are no new verdicts, and never lets a
-relay failure block the digest. Run `setup.sh --chap-workspace <id>` to
+this: it appends only the entries after the sink's last one, skips cleanly
+when there are none, and never lets a relay failure block the digest. Run `setup.sh --chap-workspace <id>` to
 create the sink.
 
 **Permission prompts.** Checks that interrupt the work tend to get
@@ -79,14 +79,16 @@ Then release again and sign it: once an approver is registered,
 "promote it" in chat makes Claude prepare a request and give you a
 `brevet approve` command. Nothing changes until you run it in Terminal
 and enter your passphrase; the key never leaves your Mac and Claude cannot use
-it. One `brevet approve --all` signs everything you agreed to in a dawn
-session.
+it. One command signs everything you agreed to in a dawn session:
+`~/.brevet/venv/bin/brevet approve --all --workdir ~/brevet-cowork/.brevet`.
 
 ## Claude's own harness (optional)
 
 Skills, `CLAUDE.md` files and connector settings shape Claude as much as
 learned rules do. Name them in `agent.yaml`, and every release locks a
-digest of each one (never its content):
+digest of each one. The lock holds digests only; the release archive in
+`.brevet/objects/` keeps a copy of each file so a rollback can restore it,
+so leave out files holding secrets you do not want copied there:
 
 ```yaml
 bindings:
@@ -129,8 +131,9 @@ In Claude Code, declare which tools Claude may use in which tier under
 `bindings.tools` in `agent.yaml`, release it, and add Brevet as a hook in
 `.claude/settings.json`. The hook applies the tiers and channel of the latest
 release: an undeclared tool is refused, an act tool is refused on the shadow
-channel, Claude Code asks you before a controlled_act call and the
-PostToolUse hook records your grant. A call the hook cannot check is refused.
+channel, in production Claude Code asks you before a controlled_act call
+(elsewhere it is refused), and the PostToolUse hook records your grant. A
+call the hook cannot check is refused.
 
 ```json
 {"hooks": {
@@ -150,8 +153,7 @@ lists recalled rules, which Claude stops applying and acknowledges on the
 record; in a session, that acknowledgement is the assistant's own
 confirmation, while a wrapped Python agent's comes from Brevet withholding
 the rule. The records are complete: who promoted each rule, what each release
-contains, what was recalled and who confirmed it. The paper's case study
-compares this with wrapping a Python agent.
+contains, what was recalled and who confirmed it.
 
 ## Before you run it
 
@@ -170,9 +172,9 @@ The skill and every other file work as shipped.
 
 ## Setup (about two minutes)
 
-Requirements: the Claude desktop app, Python 3.10+, macOS (Linux and
-Windows users: pass `--claude-config` with your platform's
-`claude_desktop_config.json` path). The Python environment install is
+Requirements: the Claude desktop app, Python 3.10+, and macOS or Linux
+(on Linux, pass `--claude-config` with your `claude_desktop_config.json`
+path); the script needs bash. The Python environment install is
 the slow part; everything else is seconds.
 
 ```console
@@ -205,8 +207,8 @@ so sessions there are pre-approved too.
 Edit `~/brevet-cowork/governed/families.yaml` to name the kinds of
 recurring work you want governed; `assistant_conduct` (standing rules
 about how Claude works) and `general` (everything else) are the
-always-on defaults. Capture is consent-scoped: Claude
-records only in those families, or when you say "log this to brevet".
+always-on defaults. Claude files each capture under the family that fits,
+and under `general` when none does.
 
 ## A week in the life
 
@@ -215,22 +217,25 @@ so escalations come first and send it. Claude records one override,
 tagged `escalations-first`, with your one-line reason. Wednesday and
 Friday: the same correction, recorded the same way. Saturday: you say
 "brevet dream, show me pending", and one candidate rule appears, built
-from all three overrides. You say "promote it as mission_group:review_board", then "release 0.2.0 on trial", confirming the before-and-after deltas you measured or attest. The release is signed, `capabilities.lock` lists the rule, and `brevet_active` serves it from the next session; from now on, summaries start with escalations because you approved that, and the record says so. A month later, if the rule stops being right: "recall it", and `brevet_active` stops serving it, with the recall on the record.
+from all three overrides. You say "promote it as mission_group:review_board", then "release 0.2.0 on trial", attesting the before-and-after deltas. The release is signed, `capabilities.lock` lists the rule, and `brevet_active` serves it from the next session; from now on, summaries start with escalations because you approved that, and the record says so. A month later, if the rule stops being right: "recall it", and `brevet_active` stops serving it, with the recall on the record.
 
 At any point: "what have I approved and why?" is answered from the
 ledger, with capability ids, approvers, and rationales.
 
 ## What is stored, and where
 
-Everything lives in your workspace, on your machine: the ledger
-(`.brevet/ledger.jsonl`, append-only, hash-linked), the capability
-store, the Ed25519 key, `capabilities.lock` and the governed rules file.
-Recorded content is the task description, Claude's draft, the diff to
-your final, your one-line rationale, and tags, attributed to the owner
-identity in `agent.yaml`. Nothing is sent anywhere.
+Everything lives on your machine: in your workspace, the ledger
+(`.brevet/ledger.jsonl`, append-only, hash-linked), the capability store,
+the workspace's Ed25519 key, `capabilities.lock`, the release archive
+(`.brevet/releases/` and `.brevet/objects/`) and the governed rules file;
+in `~/.config/brevet/`, your approver keys and anchor settings. Recorded
+content is the task description, Claude's draft, the diff to your final,
+your one-line rationale, and tags, attributed to the owner identity in
+`agent.yaml`. Nothing is sent anywhere unless you configure an anchor or
+a CHAP coordinator, which receive what this page describes for them.
 
 ## Uninstall
 
-Delete `~/.brevet/venv` and your workspace folder, remove the `brevet`
-entry from `claude_desktop_config.json` (a timestamped backup sits
-beside it), and delete the `brevet-capture` skill in Claude.
+Delete `~/.brevet/venv`, your workspace folder and `~/.config/brevet`,
+remove the `brevet` entry from `claude_desktop_config.json` (a timestamped
+backup sits beside it), and delete the `brevet-capture` skill in Claude.

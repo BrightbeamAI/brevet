@@ -1,19 +1,8 @@
 """Brevet: change control for what AI agents learn.
 
-    brevet demo          run the governed evolution loop once, offline
-    brevet playground    step through the loop, stage by stage, in a browser
-    brevet init          create a starter manifest (agent.yaml) and .brevet/
-    brevet dream         mine recurring overrides into candidate capabilities
-    brevet dawn          the dawn gate: list candidates, or decide one
-    brevet release       pass the conservative gate, sign and release
-    brevet recall        recall a capability and flag every release with it
-    brevet verify        replay the evidence chain to detect edits
-    brevet status        version, capabilities by authority layer, chain health
-    brevet chap-ingest   import CHAP review verdicts as overrides
-    brevet mcp           serve the loop to an MCP client such as Claude Desktop
-    brevet approver      register the people whose signatures decisions need
-    brevet approve       review and sign pending decisions
-    brevet harness       compare the harness files with the latest release
+Start with 'brevet demo' (the whole loop, offline) or 'brevet playground'
+(the loop step by step in a browser). 'brevet <command> --help' explains
+each command below.
 """
 
 from __future__ import annotations
@@ -72,7 +61,8 @@ from brevet.workdir import ensure_workdir
 app = typer.Typer(add_completion=False, help=__doc__, pretty_exceptions_enable=False)
 approver_app = typer.Typer(no_args_is_help=True, help=(
     "Register the people whose signatures this workspace requires. Once the first "
-    "approver is registered, every dawn decision, release and recall must be signed."))
+    "approver is registered, every dawn decision, release, rollback and recall must "
+    "be signed."))
 app.add_typer(approver_app, name="approver")
 consent_app = typer.Typer(no_args_is_help=True, help=(
     "Consent: stop learning from a participant who withdraws it."))
@@ -84,8 +74,9 @@ def _plural(n: int, word: str, plural: str | None = None) -> str:
 
 
 def _load(workdir: Path) -> tuple[Ledger, CapabilityStore, Signer]:
+    from brevet.chap_bridge import mirror_for
     return (
-        Ledger(workdir / "ledger.jsonl"),
+        Ledger(workdir / "ledger.jsonl", dispatcher=mirror_for(workdir)),
         CapabilityStore(workdir / "capabilities.jsonl"),
         Signer(workdir / "keys" / "brevet_ed25519.pem"),
     )
@@ -165,7 +156,7 @@ def _request_then_offer(wd: Path, req: dict, *, prefer: str | None = None) -> No
     if sys.stdin.isatty() and local_identities() and typer.confirm("Sign it now?", default=True):
         _sign_and_apply(wd, [rid], prefer=prefer)
         return
-    typer.echo(f"Nothing has changed yet. To sign it: brevet approve {rid}")
+    typer.echo(f"Nothing has changed yet. To sign it: brevet approve {rid} --workdir {wd}")
 
 
 def _read_manifest(manifest_path: str) -> AgentManifest:
@@ -246,9 +237,11 @@ def init(agent: str = "my_agent", directory: str = ".",
 def dream(
     workdir: str = ".brevet",
     manifest_path: str = "agent.yaml",
-    model_family: str = "gemma4",
+    model_family: str = typer.Option(None, help="the model family the candidates apply to; "
+                                                "leave unset for rules that apply to any model"),
     assist: str = typer.Option("none", help="model assist: none or ollama (local, drafts only, always logged)"),
-    assist_model: str = typer.Option("gemma4:12b"),
+    assist_model: str = typer.Option("gemma4:12b", help="the local model that drafts candidate "
+                                                        "wording when --assist ollama is set"),
 ) -> None:
     """The dream cycle: mine recurring overrides into candidates, with no authority until promoted."""
     from brevet.assist import from_name
@@ -581,7 +574,8 @@ def mcp(
     manifest_path: str = typer.Option(None, help="the manifest (default: $BREVET_MANIFEST, "
                                                  "$BREVET_HOME/agent.yaml or ./agent.yaml)"),
 ) -> None:
-    """Serve the whole loop as tools to an MCP client such as Claude Desktop (stdio)."""
+    """Serve Brevet as tools to an MCP client such as Claude Desktop (stdio): capture,
+    the dream cycle, dawn decisions, releases, rollback, recall and verification."""
     # Errors go to stderr, never stdout: stdout belongs to the JSON-RPC
     # stream and any stray text corrupts it for the connected client.
     try:
@@ -729,7 +723,8 @@ def approver_list(workdir: str = typer.Option(".brevet"),
 @approver_app.command("revoke")
 def approver_revoke(identity: str = typer.Option(...),
                     workdir: str = typer.Option(".brevet")) -> None:
-    """Revoke an approver; another approver signs the request."""
+    """Revoke an approver. Approvers can withdraw their own key; revoking someone
+    in a mission group needs that group's quorum."""
     wd = _existing(workdir)
     _request_then_offer(wd, request_register_revoke(wd, identity))
 
@@ -758,9 +753,10 @@ _EXPECTED = (PermissionError, ValueError, KeyError, FileNotFoundError, FileExist
 def hook(workdir: str = typer.Option(None, help="the workspace folder (default: as for brevet mcp)"),
          manifest_path: str = typer.Option(None, help="the manifest (default: as for brevet mcp)"),
          ) -> None:
-    """Check one Claude Code tool call against the released tool tiers (a PreToolUse hook).
+    """Check one Claude Code tool call against the released tool tiers.
 
-    Reads the hook event from standard input and answers on standard output:
+    Register it as both the PreToolUse and the PostToolUse hook. It reads the
+    hook event from standard input and answers on standard output:
     nothing when the call is allowed, a denial (or a request to ask you, for
     a controlled_act tool) when it is not. The tiers and the channel come from
     the latest release, never from unreleased edits to agent.yaml. Anything

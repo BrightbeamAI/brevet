@@ -102,8 +102,16 @@ def _jsonl_sources(path: Path) -> tuple[dict[str, list[dict[str, Any]]], set[str
             damaged.add(ws)
         if entries:
             out.setdefault(ws, []).extend(entries)
-    for entries_for_ws in out.values():
+    for ws, entries_for_ws in out.items():
         entries_for_ws.sort(key=lambda e: e.get("seq", 0))
+        unique, seen = [], set()
+        for entry in entries_for_ws:  # a sink appended to twice repeats entries
+            seq = entry.get("seq")
+            if seq in seen:
+                continue
+            seen.add(seq)
+            unique.append(entry)
+        out[ws] = unique
     return out, damaged
 
 

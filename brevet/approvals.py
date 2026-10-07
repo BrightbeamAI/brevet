@@ -1109,11 +1109,18 @@ def _apply(wd: Path, store_reqs: PendingRequests, req: dict[str, Any],
     import yaml
 
     from brevet import lifecycle
+    from brevet.chap_bridge import mirror_for
     from brevet.ledger import Ledger
     from brevet.models import AgentManifest, ReleaseRecord
 
     request_id = req["request_id"]
-    ledger = Ledger(wd / "ledger.jsonl")
+    mpath = Path(manifest_path or req.get("manifest_path") or wd.parent / "agent.yaml")
+    try:
+        declared = (AgentManifest(**(yaml.safe_load(mpath.read_text(encoding="utf-8")) or {}))
+                    if mpath.exists() else None)
+    except (OSError, ValueError, yaml.YAMLError):
+        declared = None
+    ledger = Ledger(wd / "ledger.jsonl", dispatcher=mirror_for(wd, declared))
     register = register_from_chain(ledger)
     payload, approval = req["payload"], _approval(req)
     kind = payload.get("kind")

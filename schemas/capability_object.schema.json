@@ -20,7 +20,7 @@
     "content_hash": {
       "type": "string",
       "pattern": "^sha256:[a-f0-9]{64}$",
-      "description": "sha256 over the JCS-canonicalised content. This is the identity that appears in capabilities.lock and in recall notices."
+      "description": "sha256 of the content's UTF-8 bytes, written sha256:<hex>. This is the identity that appears in capabilities.lock and in recall notices."
     },
     "payload_schema": {
       "type": ["string", "null"],
@@ -40,12 +40,12 @@
     "revocation_status": { "$ref": "#/$defs/RevocationStatus", "default": "active" },
     "consent": {
       "type": ["object", "null"],
-      "description": "Required when provenance includes human-derived material (overrides, whisper responses, worker traces). Shape follows the Metis tacit_consent_record schema."
+      "description": "Optional consent record, shaped like the Metis tacit_consent_record. The dream cycle applies the manifest's consent scope to the overrides it learns from."
     },
     "lineage": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Ordered refs: mining runs, CHAP envelope ids, prior capability versions, validation events, promotion records."
+      "description": "Ordered refs to the capability's history, such as the decisions that changed it (promote:<who>, recall:<who>) and the candidates it superseded."
     },
     "policy_refs": { "type": "array", "items": { "type": "string" } },
     "use_constraints": { "type": "array", "items": { "type": "string" } },
@@ -99,10 +99,10 @@
     "Provenance": {
       "type": "object",
       "properties": {
-        "mined_by": { "type": ["string", "null"], "description": "Delta-engine run id or capture cell id." },
+        "mined_by": { "type": ["string", "null"], "description": "The dream-cycle run that proposed it (dream_...)." },
         "originating_participant": { "type": ["string", "null"] },
-        "source_traces": { "type": "array", "items": { "type": "string" }, "description": "CHAP task/trace refs (enacted side of the delta)." },
-        "source_overrides": { "type": "array", "items": { "type": "string" }, "description": "CHAP decide.override envelope refs that labelled or corrected the behaviour." },
+        "source_traces": { "type": "array", "items": { "type": "string" }, "description": "Trace refs of the tasks behind it (the enacted side of the difference signal); chap:<workspace>#<seq> for evidence imported from CHAP." },
+        "source_overrides": { "type": "array", "items": { "type": "string" }, "description": "Ids of the overrides (ovr_...) that corrected the behaviour." },
         "source_artefacts": { "type": "array", "items": { "type": "string" } },
         "specified_refs": { "type": "array", "items": { "type": "string" }, "description": "Harness version / procedure refs (specified side of the delta)." },
         "capture_method": { "type": ["string", "null"] },
@@ -118,11 +118,11 @@
     },
     "ApplicabilityContext": {
       "type": "object",
-      "description": "Conditions are evaluated computationally BEFORE any similarity ranking (conditions-first retrieval). A capability whose conditions do not match is not weakened; it is withheld, and out-of-envelope near-matches escalate.",
+      "description": "Conditions are evaluated computationally BEFORE any similarity ranking (conditions-first retrieval). A capability whose conditions do not match is not weakened; it is withheld.",
       "properties": {
         "task_family": { "type": ["string", "null"], "description": "Scope: judged where the runtime states the task family." },
         "domain": { "type": ["string", "null"], "description": "Scope: judged where the runtime states the domain." },
-        "model_family": { "type": ["string", "null"], "description": "Capabilities are model-specific by default (harness edits rarely transfer across model families unexamined)." },
+        "model_family": { "type": ["string", "null"], "description": "Scope: judged where the runtime states the model family. Set it when a capability should not transfer to other models unexamined." },
         "tool_scope": { "type": "array", "items": { "type": "string" } },
         "role": { "type": ["string", "null"], "description": "Restriction: holds only where the runtime establishes this role." },
         "risk_class": { "type": ["string", "null"], "enum": ["low", "medium", "high", "critical", null], "description": "Restriction: holds only where the runtime establishes this risk class." },

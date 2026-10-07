@@ -26,20 +26,21 @@ Run these steps in order.
    ONLY that, prominently: the evidence chain failed verification and it
    must be investigated before anything else. Stop there.
 
-2. Relay CHAP verdicts into evidence (skip cleanly if nothing to do).
-   a. Call `chap_workspace_describe` for `<CHAP_WORKSPACE>`. If
-      `task_count` and `override_count` are both 0, skip to step 3 and
-      note "no CHAP verdicts this week".
-   b. Otherwise call `chap_audit_read` for that workspace.
-   c. Append the entries, one JSON object per line exactly as returned
-      (each has `seq`, `arrived`, `envelope`), to
-      `<WORKSPACE>/chap-sink/audit-<CHAP_WORKSPACE>.jsonl`. Create the
-      file if absent. Never rewrite or reorder existing lines: it is an
-      append-only transport buffer.
+2. Relay new CHAP verdicts into evidence (skip cleanly if nothing to do).
+   a. Read the last line of `<WORKSPACE>/chap-sink/audit-<CHAP_WORKSPACE>.jsonl`
+      and take its `seq`; if the file is absent or empty, use -1.
+   b. Call `chap_audit_read` for `<CHAP_WORKSPACE>` with
+      `range.from_seq` set to that seq plus 1. If it returns no entries,
+      skip to step 3 and note "no new CHAP verdicts".
+   c. Append only those entries, one JSON object per line exactly as
+      returned (each has `seq`, `arrived`, `envelope`), to the sink file.
+      Create the file if absent. Never rewrite or reorder existing lines:
+      it is an append-only transport buffer.
    d. Call `brevet_chap_ingest` with `source` set to the `chap-sink`
-      directory. Report overrides, approvals, rejections and
-      `duplicates_skipped`. A non-zero `duplicates_skipped` is healthy:
-      a judgment already captured in-session was not counted twice.
+      directory. Report its `chain` value, overrides, approvals,
+      rejections and `duplicates_skipped`. A non-zero
+      `duplicates_skipped` is healthy: a judgment already captured
+      in-session was not counted twice.
    e. If any step here fails, note it in one line and continue. A relay
       problem must never block the digest.
 

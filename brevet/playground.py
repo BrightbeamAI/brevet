@@ -119,8 +119,8 @@ class PlaygroundSession:
             sev = next((line.split(": ")[1] for line in r.output.splitlines()
                         if line.startswith("severity")), "?")
             rows.append({"task": task, "draft_severity": sev})
-        return {"summary": f"The agent drafted {len(CASES)} severity ratings under signed "
-                           f"harness 0.1.0. The harness stays fixed while the agent works.",
+        return {"summary": f"The agent drafted {len(CASES)} severity ratings as version 0.1.0, "
+                           f"on the shadow channel. Its harness stays fixed while it works.",
                 "artifact": rows}
 
     def _step_override(self) -> dict:
@@ -160,13 +160,13 @@ class PlaygroundSession:
             self.agent.dawn(decide=(self._cand_id, "promote"),
                             approver="dream:nightcycle")
             return {"summary": "UNEXPECTED: the promotion succeeded.",
-                    "artifact": {"invariant": "I2", "held": False}}
+                    "artifact": {"invariant": "no self-authorisation", "held": False}}
         except PermissionError as e:
             return {"summary": "The dream cycle tried to promote its own "
                                "candidate as dream:nightcycle, and Brevet rejected "
                                "it. Promotion needs a human or mission-group "
                                "identity.",
-                    "artifact": {"invariant": "I2 (no self-authorisation)",
+                    "artifact": {"invariant": "no self-authorisation",
                                  "attempted_approver": "dream:nightcycle",
                                  "error": str(e), "held": True}}
 
@@ -217,8 +217,9 @@ class PlaygroundSession:
                    "artefact on the P-301 family; the rule over-generalises.",
             issued_by=MISSION_GROUP)
         return {"summary": "The rule proved wrong, so it was recalled and "
-                           "every release that shipped it is flagged. It is "
-                           "excluded from future releases.",
+                           "every release that shipped it is flagged. Running "
+                           "agents stop receiving it, and future releases "
+                           "leave it out.",
                 "artifact": json.loads(notice.model_dump_json())}
 
     def _step_verify(self) -> dict:
@@ -386,7 +387,7 @@ PAGE = r"""<!doctype html>
 the runtime only ever executes signed versions.</footer>
 <script>
 const META = {
-  work:    ["Work",    "the agent drafts 6 ratings under signed harness 0.1.0"],
+  work:    ["Work",    "the agent drafts 6 ratings as version 0.1.0, on shadow"],
   override:["Override","the reviewer corrects drafts; each becomes an override"],
   dream:   ["Dream",   "recurring overrides become a candidate and eval cases"],
   block:   ["Self-promotion attempt", "dream:nightcycle tries to promote its own candidate"],
