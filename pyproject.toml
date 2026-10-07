@@ -38,7 +38,6 @@ dependencies = [
 [project.optional-dependencies]
 # The official CHAP Python coordinator, from PyPI.
 chap = ["chap-coordinator>=0.2.8"]
-metis = ["metis-memory>=0.1.0"]
 # Kept so that "brevet[mcp]" still installs; the SDK is now a core dependency.
 mcp = ["mcp>=1.10,<3"]
 # Passphrase-protected SSH keys as approver keys (brevet approver add --ssh-key).

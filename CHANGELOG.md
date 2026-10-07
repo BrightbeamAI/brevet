@@ -24,6 +24,10 @@
 - The source distribution includes the files its tests read.
 - Documentation, schema descriptions and command help corrected throughout.
 
+### Removed
+
+- The `metis` install extra, which installed a package Brevet does not use.
+
 ## 0.4.0 (2026-10-07)
 
 The whole harness under change control, and the controls a production
